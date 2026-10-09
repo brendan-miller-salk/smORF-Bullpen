@@ -1,0 +1,66 @@
+# smORF-Bullpen: FASTQ -> PRICE + RiboCode ORF catalogue -> Chothani
+# translation-signature scores -> smORF typing. Single-end Ribo-seq.
+#
+# Run from the RUN project root, never from inside this repo:
+#   snakemake -s <repo>/workflow/Snakefile --configfile config/bullpen.yaml \
+#             --profile <repo>/profiles/slurm
+#
+# tools.assembly: [stringtie] builds novel_gtf from bulk RNA-seq (rules/tools/stringtie.smk).
+#
+# Provided mode (config `orf_gtf`): GTF ORFs -> Annotator / ShortStop / blastoff / DIAMOND.
+# No FASTQs; the Ribo-seq rule files are not even loaded.
+
+from snakemake.utils import min_version
+
+min_version("8.0")
+
+
+include: "rules/common.smk"
+include: "rules/reference.smk"
+include: "rules/normalize.smk"
+
+if not PROVIDED:
+
+    include: "rules/preprocess.smk"
+    include: "rules/align.smk"
+    include: "rules/qc.smk"
+    include: "rules/psite.smk"
+    include: "rules/score.smk"
+
+
+include: "rules/catalogue.smk"
+include: "rules/annotate.smk"
+
+# Only the tools enabled in config `tools:` are loaded (see rules/common.smk).
+for _tool in CALLERS + ANNOTATORS + COUNTERS + VISUALIZERS + CONSERVATION + ASSEMBLY:
+
+    include: f"rules/tools/{_tool}.smk"
+
+
+rule all:
+    input:
+        f"{OUT}/orfs.csv",
+        SMORF_SETS,
+        ANNOTATED,
+        f"{OUT}/catalogue/catalogue_report.tsv",
+        [] if PROVIDED else [
+            f"{OUT}/scoring/pass_all_qc.tsv",
+            f"{OUT}/scoring/primary_set.bed12",
+            f"{OUT}/scoring/score_distributions.png",
+            f"{OUT}/preprocess/adapter_report.tsv",
+            f"{OUT}/qc/strand_report.tsv",
+            f"{OUT}/psites/psite_report.tsv",
+        ],
+        [f"{OUT}/counts.tsv"] if COUNTERS else [],
+        [f"{OUT}/assembly/{r}.tsv" for r in ("assembly_report", "strand_report", "adapter_report")]
+        if ASSEMBLY else [],
+        [f"{OUT}/tracks/frame_summary.tsv", TRACK_FILES] if "frame_tracks" in VISUALIZERS else [],
+
+
+rule stage1:
+    """Everything up to and including the ORF catalogue."""
+    input:
+        f"{OUT}/catalogue/cohort.catalogue.bed12",
+        f"{OUT}/preprocess/adapter_report.tsv",
+        expand(f"{OUT}/psites/{{sample}}_{{strand}}.bedgraph",
+               sample=SAMPLES, strand=["fw", "rc"]),

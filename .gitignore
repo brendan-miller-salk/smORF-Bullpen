@@ -1,0 +1,21 @@
+.snakemake/
+__pycache__/
+*.pyc
+results*/
+!claude-plugin/skills/results/
+logs/
+*.sif
+*.img
+# Run configs belong in the run project; only templates live here.
+config/*
+!config/*.template.*
+# Reference data, if fetched into refs/.
+refs/*
+!refs/fetch_references.sh
+!refs/fetch_conservation.sh
+# Site profiles hold account names and site paths: kept local. Only the
+# generic ones and the filled-in example are tracked.
+profiles/*
+!profiles/slurm/
+!profiles/local/
+!profiles/example/

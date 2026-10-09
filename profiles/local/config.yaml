@@ -1,0 +1,10 @@
+# Single machine, no scheduler. Set cores/memory to the machine:
+#   snakemake -s <repo>/workflow/Snakefile --configfile config/bullpen.yaml \
+#             --profile <repo>/profiles/local --cores 16 --resources mem_mb=120000
+# The STAR genome index needs ~96 GB (see README, Resources).
+executor: local
+cores: 8
+software-deployment-method: [conda, apptainer]
+rerun-incomplete: true
+printshellcmds: true
+retries: 1

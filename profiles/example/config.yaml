@@ -1,0 +1,31 @@
+# EXAMPLE site profile, filled in for a made-up cluster. Copy to
+# profiles/<site>/ and replace every value marked EDIT. Site profiles other than
+# slurm/, local/ and example/ are gitignored, so yours stays off the remote.
+# Launched by profiles/<site>/run_head.sbatch.
+executor: slurm
+jobs: 20
+# Caps per-job threads; without it every rule is clamped to 1 CPU. Set to the
+# core count of the partition's nodes. EDIT
+cores: 64
+software-deployment-method: [conda, apptainer]
+# Shared, backed-up space so envs and images are built once. EDIT
+conda-prefix: /project/mylab_123/envs/bullpen_conda
+apptainer-prefix: /project/mylab_123/apptainer_cache/bullpen
+# Every filesystem holding FASTQs, references, outputs or TMPDIR. EDIT
+apptainer-args: "--bind /project,/scratch"
+rerun-incomplete: true
+printshellcmds: true
+latency-wait: 60
+retries: 1
+
+default-resources:
+  slurm_partition: "compute"      # EDIT: `sinfo -s`
+  slurm_account: "mylab_123"      # EDIT: `sacctmgr show assoc user=$USER`
+  mem_mb: 8000
+  runtime: 120
+
+# Per-rule threads/mem/runtime live in the rules. Override per rule once
+# measured, e.g.
+# set-resources:
+#   price:
+#     mem_mb: 192000

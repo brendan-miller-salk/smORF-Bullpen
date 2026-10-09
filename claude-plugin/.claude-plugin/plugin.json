@@ -1,0 +1,12 @@
+{
+  "name": "smorf-bullpen",
+  "description": "Set up runs, diagnose failures and explore results of the smORF-Bullpen pipeline",
+  "author": {
+    "name": "Brendan Miller",
+    "url": "https://github.com/brendan-miller-salk"
+  },
+  "homepage": "https://github.com/brendan-miller-salk/smORF-Bullpen",
+  "repository": "https://github.com/brendan-miller-salk/smORF-Bullpen",
+  "license": "MIT",
+  "keywords": ["bioinformatics", "ribo-seq", "smorf", "snakemake"]
+}

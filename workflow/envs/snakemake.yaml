@@ -1,0 +1,11 @@
+# Head-job environment: Snakemake itself plus the Slurm executor. Versions are
+# the ones the workflow was developed with.
+#   mamba env create -n bullpen-snakemake -f workflow/envs/snakemake.yaml
+channels:
+  - conda-forge
+  - bioconda
+channel_priority: strict
+dependencies:
+  - python=3.12
+  - snakemake-minimal=9.27
+  - snakemake-executor-plugin-slurm=2.8

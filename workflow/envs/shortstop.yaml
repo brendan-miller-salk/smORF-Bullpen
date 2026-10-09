@@ -1,0 +1,30 @@
+# ShortStop runtime. ShortStop itself is installed by shortstop.post-deploy.sh
+# (pinned commit, --no-deps) because its setup.py pins `umap==0.1.1`, which has
+# been removed from PyPI. That pin is also redundant: `import umap` is provided
+# by umap_learn. The pins below are ShortStop setup.py's, minus that one.
+# Python <3.11 is required; the compiler builds its two C extensions.
+name: bullpen-shortstop
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pip
+  - c-compiler
+  - git
+  - pip:
+      - Bio==1.6.2
+      - biopython==1.80
+      - eli5==0.13.0
+      - joblib==1.2.0
+      - keras==2.11.0
+      - matplotlib==3.6.3
+      - numpy==1.26.4
+      - pandas==2.2.2
+      - plotly==5.13.0
+      - protlearn==0.0.3
+      - scikit_learn==1.2.2
+      - seaborn==0.13.2
+      - tensorflow==2.11.0
+      - umap_learn==0.5.3
+      - xgboost==1.7.3
+      - setuptools<81

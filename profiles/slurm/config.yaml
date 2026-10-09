@@ -1,0 +1,35 @@
+# Generic Snakemake 8+/9 Slurm profile. Copy to profiles/<site>/ and set the
+# account/partition for your cluster (profiles/example/ is a filled-in one).
+#   snakemake -s <repo>/workflow/Snakefile --configfile config/bullpen.yaml \
+#             --profile <repo>/profiles/slurm
+# Needs snakemake-executor-plugin-slurm (workflow/envs/snakemake.yaml) and
+# apptainer on PATH in the head job's shell (jobs inherit it).
+executor: slurm
+jobs: 20
+# Caps per-job threads; without it every rule is clamped to 1 CPU. The widest
+# rule asks for 32.
+cores: 32
+software-deployment-method: [conda, apptainer]
+# Envs and images are built once here. Relative paths resolve against the run
+# project; point several runs at one shared directory to build them once.
+# conda-prefix: /shared/envs/bullpen_conda
+# apptainer-prefix: /shared/apptainer_cache/bullpen
+# Bind the filesystems that hold your FASTQs, references and outputs if they
+# are not under $HOME or the run directory, e.g. "--bind /data,/scratch".
+# apptainer-args: "--bind /data"
+rerun-incomplete: true
+printshellcmds: true
+latency-wait: 60
+retries: 1
+
+default-resources:
+  # slurm_account: "my_account"   # set where your cluster requires one
+  # slurm_partition: "compute"
+  mem_mb: 8000
+  runtime: 120
+
+# Per-rule threads/mem/runtime live in the rules. Override per rule once
+# measured, e.g.
+# set-resources:
+#   price:
+#     mem_mb: 192000

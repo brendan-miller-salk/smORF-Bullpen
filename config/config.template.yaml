@@ -1,0 +1,323 @@
+# smORF-Bullpen run config. Copy into the RUN project's config/ and edit;
+# never run from inside this repo. Relative paths resolve against the directory
+# snakemake is launched from (the run project root).
+#
+#   snakemake -s <repo>/workflow/Snakefile --configfile config/bullpen.yaml \
+#             --profile <repo>/profiles/<slurm|local|site>
+
+# Two columns, tab-separated: sample, fastq (single-end, gzipped).
+samplesheet: config/samples.tsv
+
+# Provided mode: annotate a GTF's ORFs instead of calling them from Ribo-seq.
+# One ORF per transcript; needs `transcript` and `CDS` rows (`stop_codon` rows
+# are folded in). Runs only the annotators: no samplesheet, no scoring, no
+# MMseqs2 collapse, and tools.callers / tools.counters must be [] or absent.
+# orfs.csv gains source_id (the GTF's orf_id attribute, else transcript_id).
+orf_gtf: null
+
+# Every output of the run lands here.
+outdir: results_bullpen
+
+# --- References --------------------------------------------------------------
+# Ensembl 110 == GENCODE vM33, GRCm39, chr-prefixed. Build them with
+#   bash <repo>/refs/fetch_references.sh /path/to/refs
+# Must be ENSEMBL, not GENCODE: the Annotator keys off five_prime_utr and
+# gene_biotype and silently types every ORF 'UA' without them. Chromosomes must
+# be UCSC-style (chr1..chrY, chrM).
+genome: /path/to/refs/GRCm39.primary_assembly.genome.fa
+gtf: /path/to/refs/ensembl110.GRCm39.chr.gtf
+
+# Optional novel transcript models. Transcripts whose gffcompare class code is
+# in `novel_class_codes` are appended to the reference to form the hybrid GTF
+# the callers see. null = no novel models; the hybrid GTF is then the reference GTF.
+# 'x' (antisense) needs strand-specific RNA-seq behind the novel GTF: with
+# tools.assembly every library must measure rf/fr (assembly/strand_report.tsv) or
+# the run stops; a supplied novel_gtf must be declared with novel_gtf_stranded: true.
+novel_gtf: null   # e.g. /path/to/stringtie_novel.gtf; or build it: tools.assembly below
+novel_class_codes: [u, i, j, k, o, m, n]
+novel_gtf_stranded: false   # true only if novel_gtf was assembled from stranded RNA-seq
+# Classes the RiboCode side sees (hybrid STAR index + RiboCode annotation); a subset
+# of novel_class_codes. k/m/n repeat reference intron chains, so transcriptome reads
+# multi-map and RiboCode's metaplots lose periodicity. null = novel_class_codes.
+ribocode_novel_class_codes: [u, i, j, o]
+
+# Annotation RiboCode (and the second STAR index) sees, as backbone + novel:
+#   canonical  one transcript per gene, AGAT longest isoform (default)
+#   full       every Ensembl isoform; finds isoform-specific ORFs, spreads reads
+# PRICE and the catalogue always use every isoform + novel (the full hybrid).
+ribocode_annotation: canonical
+
+# --- Assembly (tools.assembly: stringtie) --------------------------------------
+# Builds novel_gtf from bulk RNA-seq of the same cells (leave novel_gtf null):
+# STAR 2-pass on the reference index -> StringTie 3 guided per sample -> --merge ->
+# -e TPM per sample. A transcript the reference lacks is kept if its TPM is
+# >= assembly_min_tpm in >= assembly_min_samples samples; novel_class_codes above
+# then picks which classes (u intergenic, i intronic, x antisense, j/o/...) the
+# callers see. Outputs and per-step counts: <outdir>/assembly/.
+# The hybrid GTFs and the hybrid STAR index (index_dir) then depend on this run's
+# RNA-seq: do not share index_dir with a run that assembles different data.
+#
+# Tab-separated: sample, fastq_1, fastq_2 (absolute, gzipped; fastq_2 empty for
+# single-end). One row per lane; a sample's rows are aligned together.
+rnaseq_samplesheet: config/rnaseq_samples.tsv
+# auto: from STAR gene counts; every sample must agree (rf = dUTP / TruSeq stranded).
+# Report: <outdir>/assembly/strand_report.tsv.
+rnaseq_strandedness: auto   # auto | unstranded | rf | fr
+assembly_min_tpm: 1
+assembly_min_samples: 2
+# stringtie --merge flags (-G is added). -F 0 drops the FPKM >= 1 cut; -T 1 is the
+# TPM an input transcript needs in its sample.
+assembly_merge_args: "-F 0 -T 1"
+rnaseq_star_extra_args: ""
+# fastp per lane, as the NSCLC isoform catalogue: adapters, poly-G, 3' quality trim
+# (window 4, Q20), pairs with a mate < 36 nt dropped. A corrupt gzip fails its lane.
+# auto: fastp detects the adapters per lane (--detect_adapter_for_pe); or give both
+# sequences (NSCLC: TruSeq AGATCGGAAGAGCACACGTCTGAACTCCAGTCA / AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT).
+# Detected adapters and trimmed reads per lane: <outdir>/assembly/adapter_report.tsv.
+rnaseq_adapter_r1: auto
+rnaseq_adapter_r2: auto
+
+# Built indexes (two STAR, GEDI, SortMeRNA) go here. Point several runs at one
+# shared directory to build them once; they depend only on genome + hybrid GTF.
+index_dir: results_bullpen/index
+
+# --- Preprocessing -----------------------------------------------------------
+# 3' adapter. `auto` = Trim Galore detects Illumina / Nextera / small RNA; or
+# give the sequence. Either way every sample is checked: the adapter must be in
+# >= adapter_min_fraction of its first 1M reads, or the sample fails before rRNA
+# removal (a custom linker, e.g. CTGTAGGCACCATCAAT, is not auto-detectable).
+# Standard Illumina small-RNA/TruSeq libraries are auto-detected (AGATCGGAAGAGC,
+# full 3' adapter AGATCGGAAGAGCACACGTCT). UMIs are not handled.
+adapter: auto
+adapter_min_fraction: 0.5
+min_read_length: 20
+
+# SortMeRNA v4.3.4 default databases.
+sortmerna_dbs:
+  - rfam-5.8s-database-id98
+  - rfam-5s-database-id98
+  - silva-arc-16s-id95
+  - silva-arc-23s-id98
+  - silva-bac-16s-id90
+  - silva-bac-23s-id98
+  - silva-euk-18s-id95
+  - silva-euk-28s-id98
+
+# --- Alignment ---------------------------------------------------------------
+star_extra_args: "--outFilterMismatchNmax 3 --outFilterMatchNmin 20"
+
+# --- P-sites (plastid) -------------------------------------------------------
+psite_min_length: 20
+psite_max_length: 50
+psite_default_offset: 12
+# psite_check keeps a read length for the P-site tracks only if plastid fitted it
+# (not the default), it is >= psite_min_share of start-codon reads, its offset is in
+# psite_offset_range, and >= psite_min_frame0 of its P-sites are in frame (chance 0.33).
+# A sample FAILs with < psite_min_start_reads start-codon reads, an unkept dominant
+# length, or kept lengths under psite_min_kept_share. fail stops the run; warn scores
+# FAIL samples on their kept lengths. Report: <outdir>/psites/psite_report.tsv.
+psite_check: fail
+psite_min_share: 0.015   # 1.5% keeps muscle 31-mers (1.7%, offset 13)
+psite_min_frame0: 0.45
+psite_offset_range: [10, 16]
+psite_min_start_reads: 20000
+psite_min_kept_share: 0.5
+
+# --- Strandedness ------------------------------------------------------------
+# Bullpen assumes sense reads throughout (P-site tracks, PRICE, RiboCode). Before
+# either uses a library, featureCounts counts its unique CDS reads on each strand;
+# it must be >= strand_min_sense sense, on >= strand_min_assigned CDS reads.
+# fail stops the run; warn only reports. Report: <outdir>/qc/strand_report.tsv.
+strand_check: fail
+strand_min_sense: 0.9
+strand_min_assigned: 100000
+
+# --- Counting (tools.counters: featurecounts) ---------------------------------
+# counts.tsv: unique reads (no -M) on canonical CDS plus the parts of novel smORFs
+# (Comprehensive, blastoff_class novel, <= smorf_max_aa)
+# that no canonical CDS reaches. Each canonical CDS is widened by a 5' and a 3'
+# flank before that subtraction, fitted per dataset from read spill-over past
+# canonical start and stop codons (counting/flank_fit.tsv, flank_metagene.png):
+# the flank ends where coverage is within counting_flank_excess_frac of the way
+# from the adjacent UTR level (median over counting_flank_baseline nt) to CDS level.
+# counting_flank_nt: an integer replaces both fitted flanks.
+counting_flank_nt: auto
+counting_flank_excess_frac: 0.05
+counting_flank_baseline: [40, 100]   # the UTR just past a CDS footprint's reach, not the distal UTR
+
+# --- Tools -------------------------------------------------------------------
+# Which modules run, listed in pipeline order. Callers produce the catalogue;
+# annotators and conservation each add columns to orf_scores_annotated.tsv.
+# Available tools are listed in rules/common.smk.
+tools:
+  assembly:     []                                # [stringtie] = build novel_gtf from RNA-seq (see Assembly)
+  callers:      [price, ribocode]
+  annotators:   [annotator, shortstop, blastoff]
+  conservation: [diamond]                         # [] or absent = no diamond_* columns
+  counters:     [featurecounts]                   # [] = no counts.tsv; needs blastoff
+  visualizers:  [frame_tracks]                    # [] or absent = no tracks/
+
+# --- UniProt -----------------------------------------------------------------
+# refs/fetch_references.sh <out_dir> writes this file.
+blastoff_fasta: /path/to/refs/uniprot_UP000000589_2026_03/uniprot_mouse.fasta
+blastoff_short_aa: 30      # <= this many aa -> blastp-short
+blastoff_min_pident: 95    # near_identical / truncated / internal calls; identical = exact sequence
+blastoff_slack_aa: 2       # aa tolerated at each alignment end
+blastoff_min_shared_aa: 10 # shortest alignment for any in-frame call but identical (guards 5-9 aa queries)
+
+# --- Conservation (tools.conservation: diamond) -------------------------------
+# DIAMOND blastx of each species' Ensembl cDNA + ncRNA against the ORF proteins
+# (tblastn run the other way round). refs/fetch_conservation.sh <out_dir> writes
+# these and prints this block. Names become columns (diamond_<name>_*); order is
+# the order of diamond_species in orfs.csv.
+diamond_species:
+  human:     /path/to/refs/ensembl110_conservation/human.cdna_ncrna.fa.gz
+  rat:       /path/to/refs/ensembl110_conservation/rat.cdna_ncrna.fa.gz
+  cow:       /path/to/refs/ensembl110_conservation/cow.cdna_ncrna.fa.gz
+  chicken:   /path/to/refs/ensembl110_conservation/chicken.cdna_ncrna.fa.gz
+  zebrafish: /path/to/refs/ensembl110_conservation/zebrafish.cdna_ncrna.fa.gz
+# Mouse -> species Ensembl orthologs. An ORF's host gene's orthologs form a second,
+# small database where short ORFs can reach significance. Optional per species.
+diamond_orthologs:
+  human:     /path/to/refs/ensembl110_conservation/human.orthologs.tsv
+  rat:       /path/to/refs/ensembl110_conservation/rat.orthologs.tsv
+  cow:       /path/to/refs/ensembl110_conservation/cow.orthologs.tsv
+  chicken:   /path/to/refs/ensembl110_conservation/chicken.orthologs.tsv
+  zebrafish: /path/to/refs/ensembl110_conservation/zebrafish.orthologs.tsv
+# E is tblastn's (ORF as query), recomputed from the bitscore, so it is the same
+# across runs. ORFs a perfect match could not make significant are untestable.
+diamond_evalue: 1e-3        # conserved: best forward-frame hit at or below this E ...
+diamond_min_cov: 0.5        # ... covering at least this share of the ORF protein
+diamond_search_bits: 30     # hits kept (weaker best hits are still listed, not counted)
+
+# --- Catalogue ---------------------------------------------------------------
+smorf_max_aa: 150       # flags is_smorf (and what counting counts); does not filter
+# exact: every distinct ORF structure is its own row, as Chothani et al. ("all isoforms
+# retained"); calls of the same structure from both callers are one row credited to
+# both; ORFs sharing a stop share isoform_group. overlap: one row per cluster (>= 80%
+# reciprocal overlap, same junctions), which keeps one start variant per cluster.
+catalogue_merge: exact
+# true: fold smORFs whose proteins MMseqs2 clusters (>= 90% identity,
+# >= 80% coverage) into one row, even across loci. false = keep every merged ORF.
+orf_collapse: false
+# These two define cohort.catalogue.consensus.bed12 only; scoring always sees
+# the full catalogue. PRICE is pooled, so a PRICE call passes min_samples.
+orf_min_callers: 1
+orf_min_samples: 1
+# Caller cut-offs, applied before merging. null = keep every call.
+# PRICE lists every candidate it tested, not only its calls: on muscle,
+# 39% of rows have p >= 0.5. price_max_fdr applies PRICE's own default (-fdr 0.1)
+# as a Benjamini-Hochberg FDR over the whole table.
+# price_max_p is an optional raw-p cap on top of it.
+# RiboCode already filters at its default: raw combined p <= 0.05 per sample
+# (detectORF --pval-cutoff; its adjusted p is only used for the _collapsed output).
+price_max_fdr: 0.1
+price_max_p: null
+ribocode_max_p: null
+
+# --- Scoring (Chothani translation signatures) -------------------------------
+# Thresholds are fitted per run from annotated CDS, never hardcoded.
+#
+# auto: extend 3 nt only if the catalogue proves stop-exclusive; a catalogue
+# mixing conventions aborts rather than scoring unlike things.
+extend_stop: auto
+# Collapse identical spliced block structures emitted across samples.
+dedup: true
+# lower: threshold where `threshold_percentile` of annotated CDS score ABOVE it.
+# upper: the literal "95th percentile", which only ~5% of real CDS pass.
+threshold_tail: lower
+threshold_percentile: 0.95
+# empirical: plain quantile. normal: Gaussian fit, kept only for comparison; the
+# metrics are bounded [0,1] and left-skewed, so it gives impossible values (>1).
+threshold_method: empirical
+# CDS with fewer P-sites are left out of calibration. Uncovered CDS score exactly
+# 0 and drag every threshold to zero on a single library; at >= 100 thresholds
+# land in the published range (PIF ~0.5).
+calibration_min_psites: 100
+# Codons with zero P-sites. fail: count against Uniformity, which on a single
+# library pushes the threshold below 0 so every ORF passes. ignore: Uniformity
+# becomes the fraction of COVERED codons that are in-frame-dominant.
+uniformity_zero_codons: ignore
+require: [pif, uniformity, dropoff]
+# drop: an ORF with sequence no annotated CDS covers, but no in-frame P-site in it,
+# leaves Comprehensive and Primary (orf_set excluded). report: columns only.
+unshared_evidence: drop
+unshared_min_inframe_psites: 5   # in-frame P-sites needed in that sequence
+# aware: sequence an annotated CDS covers only in another frame counts as the ORF's own
+# (Chothani: uoORF / intORF / doORF are alternative-frame overlaps). blind: any CDS
+# overlap is shared.
+unshared_frame: aware
+# smorf_types moved out of Comprehensive and Primary after the UniProt relabel. Trunc-Iso has
+# no sequence of its own, so every P-site it has is the host CDS's.
+exclude_types: [Trunc-Iso]
+# smorf_types that also need in-frame P-sites from uniquely mapped reads (STAR MAPQ 255)
+# in their unshared sequence. psORF: a pseudogene nearly identical to its parent
+# otherwise counts the parent's reads.
+unique_evidence_types: [psORF]
+unique_min_inframe_psites: 5
+# ORFs with no sequence outside annotated CDS (unshared_nt 0) move to excluded unless
+# their protein is exactly a Swiss-Prot sequence (Reviewed): they have no evidence of
+# their own. Exact TrEMBL matches: see trembl_identical_exempt.
+require_unshared_sequence: true
+# Exact TrEMBL matches (tr_identical) join Reviewed as exempt from this rule and the RPKM gate;
+# they must still pass PIF, uniformity and drop-off. Most are annotated CDS, so their P-sites
+# and bulk -O counts are the host's.
+trembl_identical_exempt: true
+# ORFs on these chromosomes move to excluded. chrM: the callers use the standard
+# genetic code, so chrM structures and proteins are wrong.
+exclude_chroms: [chrM]
+# Unreviewed smORFs (not sp_identical; tr_identical included) need a pooled RPKM above this outside flanked
+# canonical CDS (counts.tsv: reads summed over libraries, per kb, per million assigned
+# reads), or move to excluded. Needs counters: [featurecounts]; unset = no count gate.
+min_unique_rpkm: 5
+# above_cds_median (orfs.csv): Primary smORFs whose in-frame ribosome density (uniquely mapped
+# reads, codons between start and stop) is above this dataset's median annotated CDS; one-sided
+# Poisson, BH FDR below this. A flag only: orf_set is unchanged.
+cds_median_fdr: 0.05
+# scoring/pass_all_qc.tsv compares pass_all with Chothani et al. (threshold ranges,
+# Primary fraction, length and overlap biases). warn: log and continue. fail: stop.
+pass_all_qc: warn
+# P-sites per million, kept as a column but not a criterion: the paper uses
+# PPM > 1 only to pick ORFs to plot, and gating on it penalises low-expression
+# smORFs. PPM is scaled so the column sums to 1e6. A float re-enables the gate.
+min_ppm: null
+
+# --- Annotator (smORF typing) -------------------------------------------------
+ucsc_genome: mm39   # UCSC assembly for the links; the Annotator itself defaults to hg38
+# orfs.csv's ucsc column opens this saved UCSC session ('user/name' or its short
+# link) at each ORF. It must be saved on ucsc_genome's assembly: no db= is sent
+# with a session. null = plain browser on ucsc_genome.
+ucsc_session: null
+ucsc_pad: 50        # bp shown either side of the ORF
+
+# --- Frame tracks (visualizer frame_tracks) ------------------------------------
+# tracks/<ucsc_genome>/<label>_{plus,minus}_f{0,1,2}.bw + tracks/frame_summary.tsv:
+# pooled P-sites by frame from the start codon of the ORF they lie in (canonical
+# CDS first, then the ORF candidates), per million in-ORF P-sites. Contigs are
+# renamed with UCSC's chromAlias (downloaded on the head node). No hub file:
+# hosting and the hub are a separate step.
+tracks_label: null        # track name prefix; null = the run directory's name
+
+# --- Containers --------x------------------------------------------------------
+# Pinned tool images.
+# A local .img path works too and skips the pull.
+containers:
+  trimgalore: docker://community.wave.seqera.io/library/trim-galore:2.3.0--6a38a479b4972363
+  sortmerna:  docker://community.wave.seqera.io/library/sortmerna:4.3.7--b730cad73fc42b8e
+  star:       docker://community.wave.seqera.io/library/htslib_samtools_star_gawk:ae438e9a604351a4
+  gedi_index: docker://community.wave.seqera.io/library/gedi_indexgenome:cfca16738f306c86
+  gedi_price: docker://community.wave.seqera.io/library/gedi_price:2392624d5f803049
+  ribocode:   docker://community.wave.seqera.io/library/ribocode:1.2.15--5530b252f5433a62
+  plastid:    docker://quay.io/biocontainers/plastid:0.6.1--py39had3e4b6_2
+  gffcompare: docker://quay.io/biocontainers/gffcompare:0.12.6--h9f5acd7_0
+  agat:       docker://quay.io/biocontainers/agat:1.6.1--pl5321hdfd78af_1
+  gffread:    docker://quay.io/biocontainers/gffread:0.12.7--hdcf5f25_4
+  subread:    docker://quay.io/biocontainers/subread:2.0.8--h577a1d6_0
+  bedtools:   docker://quay.io/biocontainers/bedtools:2.31.1--hf5e1c6e_0
+  seqkit:     docker://community.wave.seqera.io/library/seqkit:2.13.0--05c0a96bf9fb2751
+  mmseqs2:    docker://community.wave.seqera.io/library/mmseqs2:18.8cc5c--af05c9a98d9f6139
+  blast:      docker://quay.io/biocontainers/blast:2.14.1--pl5321h6f7f691_0
+  diamond:    docker://quay.io/biocontainers/diamond:2.2.8--he361c42_0
+  bedgraphtobigwig: docker://quay.io/biocontainers/ucsc-bedgraphtobigwig:482--hdc0a859_0
+  stringtie:  docker://quay.io/biocontainers/stringtie:3.0.3--h29c0135_0
+  fastp:      docker://quay.io/biocontainers/fastp:1.0.1--heae3180_0

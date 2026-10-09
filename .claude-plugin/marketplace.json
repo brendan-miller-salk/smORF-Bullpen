@@ -1,0 +1,17 @@
+{
+  "name": "smorf-bullpen",
+  "description": "Claude Code skills for setting up, monitoring and interpreting smORF-Bullpen runs",
+  "owner": {
+    "name": "Brendan Miller",
+    "url": "https://github.com/brendan-miller-salk"
+  },
+  "plugins": [
+    {
+      "name": "smorf-bullpen",
+      "source": "./claude-plugin",
+      "description": "Set up runs, diagnose failures and explore results of the smORF-Bullpen pipeline",
+      "category": "science",
+      "tags": ["bioinformatics", "ribo-seq", "smorf", "snakemake"]
+    }
+  ]
+}
