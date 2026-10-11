@@ -42,7 +42,7 @@ template runs everything except assembly:
 ```yaml
 tools:
   assembly:     []                                # [stringtie] to assemble novel transcripts
-  callers:      [price, ribocode]
+  callers:      [price, ribocode]                 # + ribotish with TIS libraries
   annotators:   [annotator, shortstop, blastoff]
   conservation: [diamond]
   counters:     [featurecounts]
@@ -53,8 +53,9 @@ tools:
 |---|---|---|
 | Assembly | `stringtie` | **ORFs on transcripts the annotation lacks.** Novel transcripts are assembled from bulk RNA-seq of the same cells, filtered for expression across samples and passed to the ORF callers. |
 | Callers | `price`, `ribocode` | **Two complementary callers in one catalogue.** PRICE runs on all libraries pooled and RiboCode on each library. Every distinct ORF structure is kept as its own row, credited to each caller that found it. |
+| | `ribotish` | **Start sites from initiation-enriched libraries.** Ribo-TISH runs on each harringtonine or lactimidomycin (TIS) library, paired with the elongation libraries of the same condition. TIS libraries are used by no other step. |
 | Annotators | `annotator` | **smORF type** relative to the host gene (uORF, uoORF, iORF, dORF, lncRNA, psORF and others), grouped into Upstream, Internal, Isoform, Downstream and Non-coding. |
-| | `shortstop` | **Microprotein classification** as secreted, intracellular, or resembling random sequence (PRISM), with a probability. |
+| | `shortstop` | **Microprotein classification** as secreted, intracellular, or resembling random sequence (PRISM), with a probability and a 100-model SAM-Consensus level. |
 | | `blastoff` | **Known, isoform or novel.** Exact sequence matching against UniProt separates known proteins from N- or C-terminal extensions, truncations, alternative exons, homologs and novel proteins, and refines the smORF type accordingly. |
 | Conservation | `diamond` | **Evidence across species** (human, rat, cow, chicken, zebrafish). A second search against orthologs of the host gene makes short ORFs testable, and ORFs too short to test are flagged rather than called non-conserved. |
 | Counters | `featurecounts` | **Per-sample smORF counts** for differential analysis, measured only on sequence no canonical CDS reaches, with flanks fitted to each dataset. Lowly translated smORFs can be excluded on pooled RPKM. |
@@ -95,6 +96,9 @@ sample	fastq
 brain_rep1	/data/riboseq/brain_rep1.fastq.gz
 brain_rep2	/data/riboseq/brain_rep2.fastq.gz
 ```
+
+Optional `type` and `condition` columns add TIS libraries for Ribo-TISH; see the
+[usage guide](docs/usage.md#ribo-seq-mode).
 
 Save it as `config/samples.tsv`, then copy
 [`config/config.template.yaml`](config/config.template.yaml) to `config/bullpen.yaml` and fill in

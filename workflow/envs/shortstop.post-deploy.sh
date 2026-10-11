@@ -10,3 +10,6 @@ SHORTSTOP_COMMIT=146d40c11d2db1458001b912d11d949684a1f206
 python -c "import setuptools, packaging; print('env: setuptools', setuptools.__version__, 'packaging', packaging.__version__)"
 pip install --no-deps --use-pep517 "git+https://github.com/brendan-miller-salk/ShortStop.git@${SHORTSTOP_COMMIT}"
 python -c "import shortstop, umap, xgboost; print('shortstop import OK')"
+# Fetch the SAM-Consensus model bundle now (checksummed, into the env), so
+# shortstop_predict needs no internet on the compute node.
+python -c "from shortstop.consensus import ensure_consensus_models as e; print('consensus models:', e())"

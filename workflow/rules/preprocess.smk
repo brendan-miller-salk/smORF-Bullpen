@@ -58,7 +58,7 @@ rule adapter_check:
 rule adapter_report:
     """One table for the cohort; fails if samples were trimmed with different adapters."""
     input:
-        expand(f"{OUT}/preprocess/adapter_check/{{sample}}.tsv", sample=SAMPLES),
+        expand(f"{OUT}/preprocess/adapter_check/{{sample}}.tsv", sample=ALL_SAMPLES),
     output:
         f"{OUT}/preprocess/adapter_report.tsv",
     shell:

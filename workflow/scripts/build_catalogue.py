@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PRICE + RiboCode calls -> one cohort ORF catalogue (BED12 + TSV).
+"""PRICE + RiboCode (+ Ribo-TISH) calls -> one cohort ORF catalogue (BED12 + TSV).
 
 Three details of the merge:
 
@@ -23,6 +23,10 @@ representative chosen by class then length, so a start variant replaces another.
 Coordinates: BED12 0-based half-open. PRICE Location blocks are already
 0-based half-open; RiboCode ORF_tstart/tstop are 1-based inclusive on the
 transcript and are projected onto that transcript's exons from the hybrid GTF.
+Ribo-TISH --blocks are genomic 0-based half-open blocks, stop codon included.
+
+Ribo-TISH (TIS libraries) is per TIS library: each file is one 'sample', so its calls
+count toward n_samples like RiboCode's.
 """
 import argparse
 import collections
@@ -45,10 +49,15 @@ CLASS_MAP = {
     "ribocode": {"annotated": "canonical_cds", "uorf": "uORF", "overlap_uorf": "uoORF",
                  "dorf": "dORF", "overlap_dorf": "doORF", "internal": "intORF",
                  "novel": "novel_u"},
+    # Ribo-TISH TisType, relative to the transcript's annotated CDS (':Known' /
+    # ':CDSFrameOverlap' suffixes are dropped by map_class).
+    "ribotish": {"annotated": "canonical_cds", "truncated": "canonical_cds",
+                 "extended": "canonical_cds", "5'utr": "uORF", "3'utr": "dORF",
+                 "internal": "intORF", "novel": "novel_u"},
 }
 CLASS_RANK = {c: i for i, c in enumerate(
     ["canonical_cds", "uoORF", "uORF", "doORF", "dORF", "intORF", "novel_u", "other"])}
-CALLERS = ["price", "ribocode"]
+CALLERS = ["price", "ribocode"]   # + "ribotish" when its calls are given (main)
 
 
 def die(msg):
@@ -236,6 +245,48 @@ def read_ribocode(path, sample, tx, seqmap, max_p, stats):
     return rows, dropped
 
 
+def read_ribotish(path, sample, seqmap, max_tis_q, stats):
+    """Ribo-TISH predict output (already at its Fisher q threshold). p = FisherPvalue
+    (TIS + frame tests combined). Blocks: 'start-end,...' genomic, 0-based half-open.
+
+    Kept only if TISQvalue <= max_tis_q: the Fisher q passes any in-frame start inside a
+    translated CDS on frame evidence alone, so with --alt every near-cognate N-variant
+    of a known protein was a call (chr22, LTM: 35,926 calls; 1,697 with TIS q <= 0.05,
+    86% AUG; user, 2026-10-09). Calls that run off the transcript without a stop codon
+    (blocks = AALen x 3 nt, no stop) are dropped: every other caller's ORFs end in one."""
+    rows = []
+    with open(path) as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+        col = {c: i for i, c in enumerate(header)}
+        if "Blocks" not in col:
+            die(f"{path}: no Blocks column; run ribotish predict with --blocks.")
+        for line in fh:
+            f = line.rstrip("\n").split("\t")
+            chrom_raw, _, strand = f[col["GenomePos"]].rpartition(":")
+            chrom_raw = chrom_raw.rsplit(":", 1)[0]
+            blocks = tuple(sorted(tuple(int(x) for x in b.split("-"))
+                                  for b in f[col["Blocks"]].split(",")))
+            tis_q = f[col["TISQvalue"]]
+            if max_tis_q is not None and (tis_q in ("None", "") or float(tis_q) > max_tis_q):
+                stats[f"ribotish_dropped_tis_q:{sample}"] += 1
+                continue
+            if length(blocks) != (int(f[col["AALen"]]) + 1) * 3:
+                stats[f"ribotish_dropped_no_stop:{sample}"] += 1
+                continue
+            chrom = seqmap(chrom_raw)
+            if chrom is None:
+                continue
+            p = float(f[col["FisherPvalue"]])
+            tid, ttype = f[col["Tid"]], f[col["TisType"]]
+            rows.append(dict(caller="ribotish", sample=sample,
+                             native_id=f"{tid}:{f[col['Start']]}-{f[col['Stop']]}:{f[col['StartCodon']]}",
+                             chrom=chrom, strand=strand, blocks=blocks, transcript_id=tid,
+                             gene_id=f[col["Gid"]], native_type=ttype,
+                             orf_class=map_class("ribotish", ttype), pval=p,
+                             bed_score=min(1000, int(-math.log10(max(p, 1e-300)) * 100))))
+    return rows
+
+
 # --------------------------------------------------------------------------- genome checks
 
 def last_codon(genome, chrom, strand, blocks):
@@ -356,6 +407,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--price", help="PRICE allsamples.orfs.tsv")
     ap.add_argument("--ribocode", nargs="*", default=[], help="RiboCode <sample>.txt files")
+    ap.add_argument("--ribotish", nargs="*", default=[], help="Ribo-TISH <tis_sample>.txt files")
     ap.add_argument("--gtf", required=True, help="hybrid GTF the callers were given")
     ap.add_argument("--genome", required=True)
     ap.add_argument("--smorf-max-aa", type=int, default=150)
@@ -365,6 +417,8 @@ def main():
     ap.add_argument("--price-max-fdr", type=float, default=None,
                     help="Benjamini-Hochberg FDR over every PRICE candidate (PRICE's default is 0.1)")
     ap.add_argument("--ribocode-max-p", type=float, default=None)
+    ap.add_argument("--ribotish-max-tis-q", type=float, default=0.05,
+                    help="Ribo-TISH TISQvalue cut-off (start-codon initiation peak); 1 = none")
     ap.add_argument("--merge", choices=["exact", "overlap"], default="exact",
                     help="exact: one row per distinct ORF structure; overlap: fold by reciprocal overlap")
     ap.add_argument("--min-reciprocal-overlap", type=float, default=0.8,
@@ -372,16 +426,19 @@ def main():
     ap.add_argument("--out-prefix", required=True, help="writes <prefix>.bed12/.tsv/.consensus.bed12")
     ap.add_argument("--report", required=True)
     a = ap.parse_args()
+    if a.ribotish:
+        CALLERS.append("ribotish")
 
     genome = Fasta(a.genome, as_raw=True, sequence_always_upper=True)
     seqmap = SeqnameMap(genome.keys())
     tx = load_exons(a.gtf)
     stats = collections.Counter()
 
-    dups = duplicate_inputs(a.ribocode)
-    if dups:
-        die("identical RiboCode outputs for different samples (a caller reused one "
-            f"sample's data for another): {dups}")
+    for name, paths in (("RiboCode", a.ribocode), ("Ribo-TISH", a.ribotish)):
+        dups = duplicate_inputs(paths)
+        if dups:
+            die(f"identical {name} outputs for different samples (a caller reused one "
+                f"sample's data for another): {dups}")
 
     rows = []
     if a.price:
@@ -394,6 +451,11 @@ def main():
         r, d = read_ribocode(path, sample, tx, seqmap, a.ribocode_max_p, stats)
         rows += r
         stats[f"ribocode_rows:{sample}"], stats[f"ribocode_dropped_p:{sample}"] = len(r), d
+    for path in a.ribotish:
+        sample = os.path.basename(path).removesuffix(".txt")
+        r = read_ribotish(path, sample, seqmap, a.ribotish_max_tis_q, stats)
+        rows += r
+        stats[f"ribotish_rows:{sample}"] = len(r)
     if not rows:
         die("no ORF calls from any caller")
     if seqmap.unknown:

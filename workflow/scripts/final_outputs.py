@@ -69,7 +69,7 @@ COLUMNS = [
                            "(annotated_CDS), TrEMBL"),
     ("is_smorf", "True if {max_aa} aa or shorter"),
     ("aa_length", "protein length, aa"),
-    ("callers", "which ORF callers found it: PRICE, RiboCode, or both"),
+    ("callers", "which ORF callers found it: PRICE, RiboCode, Ribo-TISH, joined by +"),
     ("price_p", "PRICE p-value (blank if PRICE did not call it)"),
     ("ppm", "P-sites per million, scaled so the column sums to 1e6"),
     ("pif", "proportion of P-sites in frame"),
@@ -107,6 +107,10 @@ COLUMNS = [
                         "not_scored_length / not_scored_non_AUG / not_scored_sequence. "
                         "Model is human-trained"),
     ("shortstop_probability", "ShortStop's probability for its class (blank if not scored)"),
+    ("shortstop_sam_consensus", "highest SAM-Consensus level reached: SAM-Consensus-100 (all 100 "
+                                "ShortStop consensus models vote SAM), -90 (>= 90%), -50 (> 50%), or none. "
+                                "Nested; -90 or -100 is the most robust set (blank if not scored)"),
+    ("shortstop_sam_consensus_percentage", "share of the 100 consensus models voting SAM (blank if not scored)"),
     ("diamond_n_species", "species whose Ensembl transcripts encode the protein: best forward-frame "
                           "DIAMOND blastx hit covering >= diamond_min_cov of it at tblastn E <= "
                           "diamond_evalue, against the whole transcriptome or the host gene's orthologs"),
@@ -126,7 +130,8 @@ def _true(v):
 
 
 def _callers(row):
-    c = [n for n, col in (("PRICE", "called_by_price"), ("RiboCode", "called_by_ribocode"))
+    c = [n for n, col in (("PRICE", "called_by_price"), ("RiboCode", "called_by_ribocode"),
+                          ("Ribo-TISH", "called_by_ribotish"))
          if _true(row.get(col))]
     return "+".join(c)
 
@@ -213,7 +218,7 @@ def flag_above_cds_median(full, thr, fdr):
 def slim(full):
     df = pd.DataFrame(index=full.index)
     for col, _ in COLUMNS:
-        if col == "callers" and "called_by_price" in full:
+        if col == "callers" and any(c.startswith("called_by_") for c in full.columns):
             df[col] = full.apply(_callers, axis=1)
         elif col == "price_p" and ("score_price" in full or "pval_price" in full):
             df[col] = full["score_price" if "score_price" in full else "pval_price"]
@@ -307,7 +312,7 @@ def readme(name, orfs, summ, qc, details="`details/`: the full per-ORF table (`o
         s = smorf_label()
         lines.append(f"| {s} | {c(s, 'primary')} | "
                      f"{int(n.loc[s, 'primary'] + n.loc[s, 'comprehensive']):,} | {c(s, 'all')} |")
-    lines += ["", "Comprehensive = caller-supported (RiboCode, or PRICE at its default FDR 0.1). "
+    lines += ["", "Comprehensive = caller-supported (RiboCode, Ribo-TISH on TIS libraries, or PRICE at its default FDR 0.1). "
               "Primary = Comprehensive and passes PIF, Uniformity and Drop-off, each thresholded "
               "on this dataset's annotated CDS (Chothani et al.).", ""]
     if "smORFs above CDS median" in n.index:

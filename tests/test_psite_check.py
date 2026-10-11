@@ -1,4 +1,5 @@
-"""psite_check.py: keeps fitted, in-frame read lengths; fails libraries with no usable fit.
+"""psite_check.py: keeps fitted, in-frame read lengths; fails libraries with no usable fit;
+flags a TIS library left as elongation by its start-codon peak.
 Prints PASS/FAIL, exits 1 on failure."""
 import os
 import sys
@@ -7,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "workflow", "scripts"))
-from psite_check import judge, length_table, summarize  # noqa: E402
+from psite_check import judge, length_table, start_peak_ratio, summarize  # noqa: E402
 
 failed = 0
 
@@ -39,7 +40,9 @@ def run(cols, offsets, **kw):
     prof = pd.DataFrame({"x": X, **{f"{k}-mers": v for k, v in cols.items()}})
     t = judge(length_table(prof, offsets), kw.get("min_share", 0.015), kw.get("min_frame0", 0.45),
               kw.get("min_body_reads", 100), kw.get("offset_range", (10, 16)))
-    return t, summarize("s", t, kw.get("min_start_reads", 20000), kw.get("min_kept_share", 0.5))
+    ratio = start_peak_ratio(prof, offsets, kw.get("offset_range", (10, 16)))
+    return t, summarize("s", t, kw.get("min_start_reads", 20000), kw.get("min_kept_share", 0.5),
+                        ratio, kw.get("tis_peak_max", 12))
 
 
 # A good library: 28-30 periodic at 12, 31 periodic at 13, 27 aperiodic, 21 junk offset.
@@ -73,5 +76,31 @@ check("none usable: reason", "no read length passed" in s["reason"], True)
 # A length absent from the metagene file counts as zero reads, not a crash.
 t, s = run({29: periodic(50000, 12)}, {29: 12, 40: 12})
 check("missing column: kept", s["kept_lengths"], "29")
+check("good: not TIS-like", s["tis_like"], False)
+
+
+def tis(n, offset, peak):
+    """Periodic CDS reads plus `peak` x the body per-codon density on codons -1..+1."""
+    c = periodic(n, offset)
+    ps = X + offset
+    body = c[(ps >= 33) & (ps < 60)].sum() / 9
+    c[(ps >= -3) & (ps < 6) & (ps % 3 == 0)] = body * peak
+    return c
+
+
+# An elongation library keeps its modest initiation peak (HMC3: 5.9-7.4).
+t, s = run({29: tis(60000, 12, 7)}, {29: 12})
+check("elongation peak: ratio", round(s["start_peak_ratio"], 1), 7.0)
+check("elongation peak: not TIS-like", (s["tis_like"], s["status"]), (False, "PASS"))
+
+# A TIS library left as elongation (HMC3: 17.4-25.8) fails and says why.
+t, s = run({29: tis(60000, 12, 20)}, {29: 12})
+check("TIS peak: flagged", (s["tis_like"], s["status"]), (True, "FAIL"))
+check("TIS peak: reason", "looks like a TIS library" in s["reason"], True)
+check("TIS peak: threshold is configurable", run({29: tis(60000, 12, 20)}, {29: 12}, tis_peak_max=30)[1]["tis_like"], False)
+
+# Lengths with an offset outside the range do not count toward the ratio.
+t, s = run({29: tis(60000, 12, 7), 21: tis(60000, 4, 40)}, {29: 12, 21: 4})
+check("out-of-range offset ignored", s["tis_like"], False)
 
 sys.exit(1 if failed else 0)

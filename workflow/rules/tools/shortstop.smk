@@ -1,5 +1,6 @@
 # ShortStop: classifies smORFs as SAMs (sam_intracellular / sam_secreted,
-# Swiss-Prot-like) or PRISMs, with its bundled model (trained on human).
+# Swiss-Prot-like) or PRISMs, with its bundled model (trained on human), and
+# reports how many of its 100 SAM-Consensus models agree on SAM.
 # Installed from GitHub at a pinned commit (envs/shortstop.yaml), not vendored:
 # its license is non-commercial academic.
 # Contract: <OUT>/annotations/shortstop.tsv
@@ -39,6 +40,7 @@ rule shortstop_predict:
     output:
         pred=f"{SS}/run/predictions/shortstop_classifications.csv",
         seqs=f"{SS}/run/sequences/unknown_sequences.csv",
+        consensus=f"{SS}/run/predictions/consensus/shortstop_consensus.csv",
     params:
         run=os.path.abspath(f"{SS}/run"),
         log=os.path.abspath(f"{OUT}/logs/shortstop/predict.log"),
@@ -66,6 +68,7 @@ rule shortstop:
         orfs=f"{OUT}/scoring/orf_candidates.bed12",
         pred=f"{SS}/run/predictions/shortstop_classifications.csv",
         seqs=f"{SS}/run/sequences/unknown_sequences.csv",
+        consensus=f"{SS}/run/predictions/consensus/shortstop_consensus.csv",
         expected=f"{SS}/input/expected_protein.tsv",
         skipped=f"{SS}/input/skipped.tsv",
     output:
@@ -78,7 +81,7 @@ rule shortstop:
     shell:
         r"""
         python {SS_SCRIPTS}/shortstop_table.py --orfs {input.orfs} \
-            --predictions {input.pred} --sequences {input.seqs} \
+            --predictions {input.pred} --sequences {input.seqs} --consensus {input.consensus} \
             --expected {input.expected} --skipped {input.skipped} \
             --out {output.tsv} --report {output.report} 2> {log}
         cat {log} >&2

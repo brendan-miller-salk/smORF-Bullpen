@@ -31,7 +31,7 @@ In Ribo-seq mode, the `orf_set` column places every ORF in exactly one set:
 | `orf_set` | Meaning |
 |---|---|
 | `primary` | Passes every translation signature threshold in `require` (PIF, uniformity, drop-off) |
-| `comprehensive` | Called by PRICE or RiboCode and not excluded, but below at least one threshold |
+| `comprehensive` | Called by a caller and not excluded, but below at least one threshold |
 | `excluded` | Removed by one of the filters below; the reason is recorded in `failed` |
 
 Excluded ORFs stay in `orfs.csv`, so every call can be traced. Each filter runs at the first
@@ -72,7 +72,7 @@ In provided mode there are no sets: ORFs were not called from Ribo-seq, so `orfs
 | `general_smorf_type` | `smorf_type` grouped by architecture: Upstream, Internal, Isoform, Downstream, Non-coding, Reviewed, TrEMBL | `annotator` |
 | `is_smorf` | `True` if at most `smorf_max_aa` amino acids (150 by default); a flag, not a filter | Always |
 | `aa_length` | Protein length in amino acids | Always |
-| `callers` | Which callers found the ORF: PRICE, RiboCode or both | Ribo-seq mode |
+| `callers` | Which callers found the ORF: `PRICE`, `RiboCode`, `Ribo-TISH`, joined with `+` | Ribo-seq mode |
 | `price_p` | PRICE p-value | Ribo-seq mode |
 | `ppm` | P-sites per million, scaled so the column sums to 10<sup>6</sup> | Ribo-seq mode |
 | `pif`, `uniformity`, `dropoff` | Translation signature scores (see [Scoring](methods.md#scoring)) | Ribo-seq mode |
@@ -83,6 +83,7 @@ In provided mode there are no sets: ORFs were not called from Ribo-seq, so `orfs
 | `failed` | Scores below threshold, `dropoff n/a` if too few reads to measure it, and `excluded: <reason>` | Ribo-seq mode |
 | `blastoff_class`, `blastoff_acc`, `blastoff_gene` | UniProt match class, accession and gene (see [blastoff](methods.md#blastoff)) | `blastoff` |
 | `shortstop_class`, `shortstop_probability` | ShortStop class and probability | `shortstop` |
+| `shortstop_sam_consensus`, `shortstop_sam_consensus_percentage` | highest SAM-Consensus level (`SAM-Consensus-100`/`-90`/`-50`/`none`) and % of 100 models voting SAM | `shortstop` |
 | `diamond_n_species`, `diamond_species`, `diamond_n_untestable` | Species with a conserved ortholog, and species where the test had no power | `diamond` |
 | `aa_seq` | Protein sequence | Always |
 
@@ -90,6 +91,11 @@ The `README.md` written to each output directory defines every column for that r
 table, with every column from every annotator (such as `smorf_type_annotator`, `host_gene_id`,
 the remaining `blastoff_*` fields and per-species `diamond_<species>_*` calls), is
 `scoring/orf_scores_annotated.tsv`, or `orfs_annotated.tsv` in provided mode.
+
+The catalogue (`catalogue/cohort.catalogue.tsv`) has `called_by_<caller>` (1 or 0) and
+`pval_<caller>` for `price` (PRICE p-value) and `ribocode` (combined p-value), plus
+`called_by_ribotish` and `pval_ribotish` (Fisher p-value) when Ribo-TISH ran. `n_samples` counts
+the RiboCode libraries and Ribo-TISH TIS libraries that called the ORF; PRICE runs pooled.
 
 ## smORF GTF and FASTA files
 
@@ -153,6 +159,7 @@ and continue.
 | `qc/strand_report.tsv` | At least `strand_min_sense` of each library's unique CDS reads are sense-stranded | `strand_check` |
 | `psites/psite_report.tsv` | Each library has read lengths with a fitted, in-frame P-site offset | `psite_check` |
 | `scoring/pass_all_qc.tsv` | Thresholds, Primary fraction and length and overlap biases compared with Chothani et al. (warns by default) | `pass_all_qc` |
+| `callers/ribotish/quality/<sample>_qual.pdf` | Ribo-TISH found at least one read length with a usable P-site offset (fails otherwise) | `ribotish` |
 | `catalogue/catalogue_report.tsv` | Stop-codon convention of each caller, measured against the genome | |
 | `assembly/strand_report.tsv`, `assembly/adapter_report.tsv`, `assembly/assembly_report.tsv` | RNA-seq strandedness, adapters and per-step transcript counts (`stringtie`) | |
 
@@ -164,7 +171,7 @@ and continue.
 | `align/` | STAR genome and transcriptome alignments, against the reference and the hybrid index |
 | `qc/` | Strandedness counts per library |
 | `psites/` | P-site offsets and bedGraph tracks; `psites/unique/` holds the same from uniquely mapped reads |
-| `callers/` | Raw PRICE and RiboCode output |
+| `callers/` | Raw PRICE, RiboCode and Ribo-TISH output; `callers/ribotish/` holds `<tis_sample>.txt` (calls) and `<tis_sample>.tisBackground.txt`, and `callers/ribotish/quality/` the P-site offsets per library (`<sample>.para.py`, `<sample>_qual.{txt,pdf}`) |
 | `catalogue/` | The merged cohort catalogue and MMseqs2 clusters |
 | `scoring/` | CDS calibration, fitted thresholds, ORF scores and the annotated score table |
 | `annotations/` | One table per annotator, keyed by `orf_id` |

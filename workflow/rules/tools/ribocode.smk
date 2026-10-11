@@ -31,6 +31,7 @@ rule ribocode_metaplots:
         # The hybrid alignment's transcriptome BAM straight from STAR.
         bam=f"{OUT}/align/hybrid/{{sample}}/Aligned.toTranscriptome.out.bam",
         strand=f"{OUT}/qc/strand/{{sample}}.tsv",   # gate: this library is sense-stranded
+        psite=f"{OUT}/psites/psite_report.tsv",     # gate: no TIS library labelled elongation
     output:
         f"{OUT}/callers/ribocode/{{sample}}_pre_config.txt",
     params:

@@ -64,17 +64,26 @@ with tempfile.TemporaryDirectory() as d:
     # Gate: a mismatching translation must fail shortstop_table.py.
     pred = os.path.join(d, "pred.csv")
     seqs = os.path.join(d, "seqs.csv")
+    cons = os.path.join(d, "cons.csv")
     with open(pred, "w") as fh:
         fh.write("orf_id,classification,probability\norf_test,prisms,0.9\n")
+    with open(cons, "w") as fh:
+        fh.write("orf_id,sam_consensus_percentage,sam_consensus_50,sam_consensus_90,sam_consensus_100\n"
+                 "orf_test,92.0,True,True,False\n")
     for aa, want in (("MKLV", 0), ("MVLK", 1)):
         with open(seqs, "w") as fh:
             fh.write(f"orf_id,aa_seq\norf_test,{aa}\n")
         r = subprocess.run([sys.executable, os.path.join(SCRIPTS, "shortstop_table.py"),
-                            "--orfs", bed, "--predictions", pred, "--sequences", seqs,
+                            "--orfs", bed, "--predictions", pred, "--sequences", seqs, "--consensus", cons,
                             "--expected", out["exp"], "--skipped", out["skip"],
                             "--out", os.path.join(d, "t.tsv"), "--report", os.path.join(d, "r.tsv")],
                            capture_output=True, text=True)
         check(f"gate exit code when ShortStop translated {aa}", r.returncode, want)
+        if want == 0:
+            t = open(os.path.join(d, "t.tsv")).read().splitlines()
+            row = dict(zip(t[0].split("\t"), t[1].split("\t")))
+            check("highest consensus level", row["shortstop_sam_consensus"], "SAM-Consensus-90")
+            check("consensus percentage", row["shortstop_sam_consensus_percentage"], "92.0")
 
 print("\nALL TESTS PASSED" if not failed else f"\n{failed} FAILED")
 sys.exit(1 if failed else 0)

@@ -1,2 +1,2 @@
-sample	fastq
-sample_01	/path/to/sample_01.fastq.gz
+sample	fastq	type	condition
+sample_01	/path/to/sample_01.fastq.gz	elongation	control

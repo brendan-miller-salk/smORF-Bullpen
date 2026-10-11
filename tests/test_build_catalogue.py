@@ -1,11 +1,12 @@
 """Synthetic checks for build_catalogue.py coordinate handling. Prints PASS/FAIL, exits 1 on failure."""
+import collections
 import os
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "workflow", "scripts"))
 from build_catalogue import (SeqnameMap, bh_p_cutoff, cluster_by_overlap, duplicate_inputs, merge,  # noqa: E402
-                             overlap, price_gene_from_transcript, project, same_junctions)
+                             overlap, price_gene_from_transcript, project, read_ribotish, same_junctions)
 
 failed = 0
 
@@ -101,5 +102,40 @@ check("price genes changed", n, 1)
 
 print("\nALL TESTS PASSED" if not failed else f"\n{failed} FAILED")
 
+
+# Ribo-TISH predict --blocks: GenomePos chr:start-end:strand, Blocks 0-based half-open,
+# stop codon included; ':CDSFrameOverlap' / ':Known' suffixes do not change the class.
+RT_HEADER = ("Gid\tTid\tSymbol\tGeneType\tGenomePos\tStartCodon\tStart\tStop\tTisType\tTISGroup\t"
+             "TISCounts\tTISPvalue\tRiboPvalue\tRiboPStatus\tFisherPvalue\tTISQvalue\tFrameQvalue\t"
+             "FisherQvalue\tAALen\tAASeq\tBlocks\n")
+
+
+def rt_row(gpos, ttype, p, blocks, codon="ATG", tis_q="0.01", aalen=None):
+    n = sum(int(b.split("-")[1]) - int(b.split("-")[0]) for b in blocks.split(","))
+    aalen = n // 3 - 1 if aalen is None else aalen
+    return "\t".join(["G1", "T1", "SYM", "protein_coding", gpos, codon, "10", "40", ttype, "1", "5",
+                      "1e-4", "1e-3", "T", str(p), tis_q, "0.01", "0.01", str(aalen), "MAAAAAAAA", blocks]) + "\n"
+
+
+with tempfile.TemporaryDirectory() as d:
+    path = os.path.join(d, "HMC3_LTM_rep1.txt")
+    open(path, "w").write(RT_HEADER + rt_row("1:101-160:+", "5'UTR:CDSFrameOverlap", 1e-6, "100-110,200-220")
+                          + rt_row("chr1:301-330:-", "Novel", 0.02, "300-330", "CTG"))
+    rows = read_ribotish(path, "HMC3_LTM_rep1", SeqnameMap(["chr1"]), 0.05, collections.Counter())
+    check("ribotish: rows", len(rows), 2)
+    check("ribotish: chrom harmonised, strand", (rows[0]["chrom"], rows[0]["strand"]), ("chr1", "+"))
+    check("ribotish: blocks as given", rows[0]["blocks"], ((100, 110), (200, 220)))
+    check("ribotish: class without suffix", (rows[0]["orf_class"], rows[1]["orf_class"]), ("uORF", "novel_u"))
+    check("ribotish: p and sample", (rows[0]["pval"], rows[0]["sample"]), (1e-6, "HMC3_LTM_rep1"))
+    check("ribotish: native id keeps start codon", rows[1]["native_id"], "T1:10-40:CTG")
+    open(path, "w").write(RT_HEADER + rt_row("chr1:1-30:+", "Annotated", 1e-9, "0-30", tis_q="0.2")
+                          + rt_row("chr1:1-30:+", "Annotated", 1e-9, "0-30", aalen=10)
+                          + rt_row("chr1:1-30:+", "Annotated", 1e-9, "0-30", tis_q="None"))
+    st = collections.Counter()
+    check("ribotish: TIS q above cut-off, no stop, no TIS q -> dropped",
+          len(read_ribotish(path, "S", SeqnameMap(["chr1"]), 0.05, st)), 0)
+    check("ribotish: drops counted", (st["ribotish_dropped_tis_q:S"], st["ribotish_dropped_no_stop:S"]), (2, 1))
+    check("ribotish: no TIS filter keeps the stopped calls",
+          len(read_ribotish(path, "S", SeqnameMap(["chr1"]), None, collections.Counter())), 2)
 
 sys.exit(1 if failed else 0)

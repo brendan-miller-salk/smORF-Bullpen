@@ -71,6 +71,35 @@ brain_rep1	/data/riboseq/brain_rep1.fastq.gz
 brain_rep2	/data/riboseq/brain_rep2.fastq.gz
 ```
 
+Two optional columns describe initiation-enriched (TIS) libraries for Ribo-TISH:
+
+| Column | Values | Default |
+|---|---|---|
+| `type` | `elongation`, `tis_harr` (harringtonine) or `tis_ltm` (lactimidomycin) | `elongation` |
+| `condition` | Free text; each TIS library is paired with the elongation libraries of the same condition | `all` |
+
+```tsv
+sample	fastq	type	condition
+brain_rep1	/data/riboseq/brain_rep1.fastq.gz	elongation	brain
+brain_harr1	/data/riboseq/brain_harr1.fastq.gz	tis_harr	brain
+```
+
+TIS libraries are trimmed, adapter-checked, rRNA-filtered, aligned and strand-checked like any
+library, then used only by Ribo-TISH. Their reads pile up at start codons, which would distort
+PRICE's model, RiboCode's periodicity and the PIF, uniformity and drop-off scores, so they are
+never used for P-site offsets, scoring, counting or frame tracks. A samplesheet without these
+columns treats every library as elongation.
+
+Two checks stop a TIS library from being used as elongation by mistake:
+
+- **By name, at startup.** A library whose sample name or FASTQ file name contains `harr`, `ltm`,
+  `lact` or `tis` and has no `type` stops the run. Write `elongation` explicitly if it is
+  ordinary Ribo-seq.
+- **By its reads, before any caller runs.** For each elongation library, `start_peak_ratio` in
+  `psites/psite_report.tsv` is P-sites per codon at the start codon over the early CDS body.
+  TIS libraries pile up at start codons, so a ratio at or above `tis_peak_max` (default 12)
+  stops the run. PRICE and RiboCode wait for this check.
+
 In `config/bullpen.yaml`, set at least `genome`, `gtf`, `outdir`, `blastoff_fasta` and the
 `tools:` block. Every option is documented in the template.
 
@@ -158,14 +187,17 @@ it ran.
 | `stringtie` | assembly | Novel transcripts from bulk RNA-seq |
 | `price` | caller | ORF calls, from all libraries pooled |
 | `ribocode` | caller | ORF calls, per library |
+| `ribotish` | caller | ORF calls, per TIS library with its condition's elongation libraries |
 | `annotator` | annotator | `smorf_type`, `general_smorf_type`, `host_gene_name`, `host_gene_id` |
-| `shortstop` | annotator | `shortstop_class`, `shortstop_probability` |
+| `shortstop` | annotator | `shortstop_class`, `shortstop_probability`, `shortstop_sam_consensus`, `shortstop_sam_consensus_percentage` |
 | `blastoff` | annotator | Match to UniProt (`blastoff_class`, `blastoff_acc`, `blastoff_gene`, ...) |
 | `diamond` | conservation | `diamond_*` columns: orthologous hits in other species |
 | `featurecounts` | counter | `counts.tsv`; `unique_reads` and `unique_rpkm` in `orfs.csv` |
 | `frame_tracks` | visualizer | Frame-resolved P-site bigWig tracks |
 
-How each tool works is described in the [methods documentation](methods.md#tools).
+How each tool works is described in the [methods documentation](methods.md#tools). Ribo-TISH's
+options are `ribotish_max_q` (Fisher q cut-off, 0.05) and `ribotish_alt` (near-cognate start
+codons as well as AUG, `true`).
 
 ### Common configurations
 
@@ -184,6 +216,9 @@ How each tool works is described in the [methods documentation](methods.md#tools
 - With both `annotator` and `blastoff`, UniProt matches refine the Annotator's `smorf_type`. The
   original call is kept in `smorf_type_annotator`.
 - `stringtie` needs `rnaseq_samplesheet` and replaces `novel_gtf`; setting both is an error.
+- `ribotish` needs at least one TIS library in the samplesheet, and every TIS library needs an
+  elongation library with the same `condition`. TIS libraries without `ribotish` stop the run.
+  It is opt-in: without a `callers:` entry the default is `[price, ribocode]`.
 - `visualizers:`, `conservation:` and `assembly:` are off when absent from the config.
 - Provided mode never calls, counts, assembles or draws tracks.
 
@@ -233,6 +268,7 @@ can be overridden with `set-resources` in the profile. The two heaviest steps ar
 
 - **STAR genome index:** 96 GB, rising to 192 GB on retry.
 - **PRICE:** memory scales with the number of libraries.
+- **Ribo-TISH predict:** 64 GB per TIS library, rising to 128 GB on retry.
 
 Tool images and conda environments are built once. Set `conda-prefix` and `apptainer-prefix` in
 the profile to share them between runs, and point `index_dir` at a shared directory to build the

@@ -2,9 +2,12 @@
 """ShortStop predictions -> annotations/shortstop.tsv (one row per ORF, keyed by orf_id).
 
 Every ORF gets a shortstop_class: ShortStop's call (sam_intracellular,
-sam_secreted, prisms) or the reason it was not scored. Also checks that the
-protein ShortStop built for each ORF equals bullpen's own translation, and
-writes the comparison, split by strand and exon count, to --report.
+sam_secreted, prisms) or the reason it was not scored, plus the 100-model
+SAM-Consensus: shortstop_sam_consensus_percentage (share of models voting SAM)
+and shortstop_sam_consensus, the highest level reached (SAM-Consensus-100,
+-90, -50, or none). Also checks that the protein ShortStop built for each ORF
+equals bullpen's own translation, and writes the comparison, split by strand
+and exon count, to --report.
 """
 import argparse
 import sys
@@ -12,11 +15,21 @@ import sys
 import pandas as pd
 
 
+def consensus_columns(cons):
+    """ShortStop's consensus table -> orf_id, level reached, percentage. The levels are nested."""
+    level = pd.Series("none", index=cons.index)
+    for n in (50, 90, 100):
+        level[cons[f"sam_consensus_{n}"].astype(str) == "True"] = f"SAM-Consensus-{n}"
+    return pd.DataFrame({"orf_id": cons["orf_id"], "shortstop_sam_consensus": level,
+                         "shortstop_sam_consensus_percentage": cons["sam_consensus_percentage"]})
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--orfs", required=True, help="orf_candidates.bed12")
     ap.add_argument("--predictions", required=True, help="predictions/shortstop_classifications.csv")
     ap.add_argument("--sequences", required=True, help="sequences/unknown_sequences.csv")
+    ap.add_argument("--consensus", required=True, help="predictions/consensus/shortstop_consensus.csv")
     ap.add_argument("--expected", required=True)
     ap.add_argument("--skipped", required=True)
     ap.add_argument("--out", required=True)
@@ -30,6 +43,7 @@ def main():
     expected = pd.read_csv(a.expected, sep="\t")
 
     out = orfs.merge(pred[["orf_id", "shortstop_class", "shortstop_probability"]], on="orf_id", how="left")
+    out = out.merge(consensus_columns(pd.read_csv(a.consensus)), on="orf_id", how="left")
     reason = out["orf_id"].map(skipped.set_index("orf_id")["reason"])
     out["shortstop_class"] = out["shortstop_class"].fillna(reason)
     lost = out["shortstop_class"].isna()
@@ -49,6 +63,9 @@ def main():
 
     print("shortstop classes:", file=sys.stderr)
     for k, v in out["shortstop_class"].value_counts().items():
+        print(f"  {k:28s} {v:>9,}", file=sys.stderr)
+    print("shortstop SAM-Consensus (highest level reached):", file=sys.stderr)
+    for k, v in out["shortstop_sam_consensus"].value_counts().items():
         print(f"  {k:28s} {v:>9,}", file=sys.stderr)
     print("\nprotein check (bullpen vs ShortStop translation):", file=sys.stderr)
     print(table.to_string(index=False), file=sys.stderr)

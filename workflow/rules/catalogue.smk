@@ -18,6 +18,11 @@ def _ribocode_input(_):
             if "ribocode" in CALLERS else [])
 
 
+def _ribotish_input(_):
+    return (expand(f"{OUT}/callers/ribotish/{{tis}}.txt", tis=TIS_SAMPLES)
+            if "ribotish" in CALLERS else [])
+
+
 def _opt(flag, key):
     v = config.get(key)
     return f"{flag} {v}" if v is not None else ""
@@ -62,10 +67,12 @@ if PROVIDED:
 else:
 
     rule catalogue:
-        """Harmonise seqnames, project RiboCode onto exons, merge callers and samples."""
+        """Harmonise seqnames, project RiboCode onto exons, merge callers and samples.
+        Ribo-TISH calls are one 'sample' per TIS library."""
         input:
             price=_price_input,
             ribocode=_ribocode_input,
+            ribotish=_ribotish_input,
             gtf=FULL_HYBRID,
             genome=config["genome"],
             fai=f"{IDX}/genome.fa.fai",
@@ -78,6 +85,7 @@ else:
             prefix=MERGED,
             price=lambda wc, input: f"--price {input.price}" if input.price else "",
             ribocode=lambda wc, input: f"--ribocode {input.ribocode}" if input.ribocode else "",
+            ribotish=lambda wc, input: f"--ribotish {input.ribotish}" if input.ribotish else "",
             opts=" ".join([
                 _opt("--smorf-max-aa", "smorf_max_aa"),
                 _opt("--min-callers", "orf_min_callers"),
@@ -85,6 +93,7 @@ else:
                 _opt("--price-max-p", "price_max_p"),
                 _opt("--price-max-fdr", "price_max_fdr"),
                 _opt("--ribocode-max-p", "ribocode_max_p"),
+                _opt("--ribotish-max-tis-q", "ribotish_max_tis_q"),
                 _opt("--merge", "catalogue_merge"),
             ]),
         resources:
@@ -96,7 +105,7 @@ else:
             f"{OUT}/logs/catalogue.log",
         shell:
             r"""
-            python {SCRIPTS}/build_catalogue.py {params.price} {params.ribocode} \
+            python {SCRIPTS}/build_catalogue.py {params.price} {params.ribocode} {params.ribotish} \
                 --gtf {input.gtf} --genome {input.genome} {params.opts} \
                 --out-prefix {params.prefix} --report {output.report} 2> {log}
             cat {log} >&2

@@ -61,13 +61,22 @@ without extension and lane/read suffixes). Show the table and let the user edit 
 writing `config/samples.tsv`:
 
 ```
-sample<TAB>fastq
-brain_rep1<TAB>/absolute/path/brain_rep1.fastq.gz
+sample<TAB>fastq<TAB>type<TAB>condition
+brain_rep1<TAB>/absolute/path/brain_rep1.fastq.gz<TAB>elongation<TAB>brain
+brain_harr1<TAB>/absolute/path/brain_harr1.fastq.gz<TAB>tis_harr<TAB>brain
 ```
 
-Rules: tab-separated, header exactly `sample` and `fastq`, unique names, absolute paths, one
-single-end library per row. If you see R1/R2 pairs, ask: Ribo-seq is single-end, and R2 files
-usually should not be included. Re-sequenced runs of one library need merging first.
+Rules: tab-separated, header `sample`, `fastq` (then optional `type`, `condition`), unique
+names, absolute paths, one single-end library per row. If you see R1/R2 pairs, ask: Ribo-seq is
+single-end, and R2 files usually should not be included. Re-sequenced runs of one library need
+merging first.
+
+Ask whether any library is initiation-enriched (harringtonine or lactimidomycin; names with
+`harr`, `ltm`, `lact` or `tis` are a hint). If none, the `type` and `condition` columns can be
+left out. If some are, set `type` to `tis_harr` or `tis_ltm` for them (`elongation` for the
+rest), set `condition` so each TIS library shares it with at least one elongation library, and
+add `ribotish` to `callers` in step 6. See
+[config-guide.md](config-guide.md#tis-libraries-and-ribo-tish).
 
 ## 6. Configure
 
@@ -75,7 +84,7 @@ Edit `config/bullpen.yaml` and show the diff of what you changed. Always set `ge
 `outdir`, `index_dir` and, if `blastoff` is on, `blastoff_fasta`. Then choose modules with the
 user using the questions in [config-guide.md](config-guide.md#choosing-modules), and set
 `tools:` accordingly. Check the dependencies listed there (for example `featurecounts` needs
-`blastoff`; assembly needs an RNA-seq samplesheet).
+`blastoff`; assembly needs an RNA-seq samplesheet; `ribotish` needs TIS libraries).
 
 Leave scoring and filter options at their template values unless the user asks; explain any
 change you make.
@@ -101,7 +110,8 @@ sbatch -A <account> -p <partition> $BULLPEN_REPO/profiles/slurm/run_head.sbatch 
 
 When it finishes (`squeue -u $USER` no longer lists `bullpen_head`), read
 `logs/bullpen_head_<jobid>.out`. Check for `WorkflowError`, and that the job table matches the
-chosen modules (provided mode shows no `trim`, `star_align`, `price`, `ribocode` or `score`).
+chosen modules (provided mode shows no `trim`, `star_align`, `price`, `ribocode` or `score`;
+with TIS libraries, one `ribotish_predict` per TIS library).
 Fix any errors with the user before continuing.
 
 Then show the real launch (the same command without `-n`) and submit only after approval. Tell

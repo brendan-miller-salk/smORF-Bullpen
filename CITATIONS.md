@@ -72,6 +72,10 @@
 
   > Xiao Z, Huang R, Xing X, Chen Y, Deng H, Yang X. De novo annotation and characterization of the translatome with ribosome profiling data. Nucleic Acids Res. 2018;46(10):e61. doi: 10.1093/nar/gky179
 
+- [Ribo-TISH](https://github.com/zhpn1024/ribotish)
+
+  > Zhang P, He D, Xu Y, et al. Genome-wide identification and differential analysis of translational initiation. Nat Commun. 2017;8:1749. doi: 10.1038/s41467-017-01981-8
+
 - [SeqKit](https://github.com/shenwei356/seqkit)
 
   > Shen W, Le S, Li Y, Hu F. SeqKit: a cross-platform and ultrafast toolkit for FASTA/Q file manipulation. PLoS One. 2016;11(10):e0163962. doi: 10.1371/journal.pone.0163962

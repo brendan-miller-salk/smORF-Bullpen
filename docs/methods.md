@@ -26,10 +26,10 @@
 [optional: bulk RNA-seq -> fastp -> STAR -> StringTie per sample -> merge -> TPM filter -> novel transcripts]
 
 Trim Galore -> SortMeRNA
-  -> STAR: reference index (P-sites, PRICE) and hybrid index (RiboCode)
+  -> STAR: reference index (P-sites, PRICE, Ribo-TISH) and hybrid index (RiboCode)
   -> strandedness check per library
   -> P-site offsets and fit check per library
-  -> ORF calling: PRICE (pooled) and RiboCode (per library)
+  -> ORF calling: PRICE (pooled), RiboCode (per library), Ribo-TISH (per TIS library)
   -> cohort ORF catalogue
   -> translation signature scoring
   -> annotators and conservation, in parallel
@@ -79,6 +79,10 @@ Two checks gate each library before it is used:
   and at least `psite_min_frame0` of its P-sites are in frame. A library fails if it has too few
   start-codon reads, if its dominant read length is not kept, or if kept lengths cover less than
   `psite_min_kept_share` of its reads.
+- **TIS guard.** `start_peak_ratio` is P-sites per codon on codons -1..+1 of annotated start
+  codons over codons 11-19, pooled over read lengths with an offset in range. An elongation
+  library at or above `tis_peak_max` (default 12) stops the run as a likely unlabelled TIS
+  library; PRICE and RiboCode wait for this check.
 
 P-site tracks from several libraries are pooled by summing overlapping bedGraph intervals
 exactly.
@@ -90,8 +94,33 @@ exactly.
   PRICE's own default). `price_max_p` adds an optional cap on the raw p-value. Gene IDs come
   from the transcript PRICE names.
 - **RiboCode** runs per library at its default cut-off (combined p ≤ 0.05).
+- **Ribo-TISH** runs `predict` once per TIS library (`type: tis_harr` or `tis_ltm`), with that
+  library as TIS data (`-t`, plus `--harr` for harringtonine) and the elongation libraries of
+  its `condition` as ordinary Ribo-seq (`-b`). Each call combines a TIS test (start-codon peak)
+  and a frame test (elongation body); calls are Ribo-TISH's own output at Fisher q ≤
+  `ribotish_max_q` (0.05, its `--fsqth`), and `pval_ribotish` is the Fisher p-value. The Fisher
+  q passes any in-frame start inside a translated CDS on frame evidence alone, so the catalogue
+  also requires an initiation peak at the start codon, TIS q ≤ `ribotish_max_tis_q` (0.05; on
+  chr22 of one LTM library, 35,926 calls became 1,680, 86% AUG), and drops calls that run off
+  the transcript without a stop codon. Candidates
+  are every Ensembl isoform plus novel transcripts, as for PRICE; the TIS background and the
+  known-CDS labels (`-a`) use the canonical GTF, one transcript per gene. `ribotish_alt: true` tests AUG
+  and near-cognate starts (one base from AUG, `--alt`); `false` tests AUG only. P-site offsets
+  come from `ribotish quality` on each library's reference genome alignments against the
+  canonical GTF (`-t` for TIS libraries); the step fails if no read length passes Ribo-TISH's
+  quality threshold. Each TIS library counts as one sample in `n_samples`. Ribo-TISH's TisType
+  maps to the catalogue class: Annotated, Truncated and Extended to `canonical_cds`, 5'UTR to
+  `uORF`, 3'UTR to `dORF`, Internal to `intORF` and Novel to `novel_u`, ignoring `:Known` and
+  `:CDSFrameOverlap` suffixes. Its `--blocks` give the genomic structure directly (0-based
+  half-open, stop included). Ribo-TISH 0.2.7 and 0.2.8 crash with more than one process on
+  Python 3.8 or later (`group argument must be None for now`), so `predict` runs through a small
+  inline shim that drops the pool context passed as `group` and is otherwise unchanged.
 
-Chromosome names from both callers are harmonised to the genome before merging, and each
+TIS libraries are used only by Ribo-TISH. Their reads pile up at start codons, which would
+distort PRICE's model, RiboCode's periodicity and the PIF, uniformity and drop-off scores, so
+they are excluded from P-site offset fitting and its check, scoring, counting and frame tracks.
+
+Chromosome names from all callers are harmonised to the genome before merging, and each
 caller's stop-codon convention is measured against the genome and reported in
 `catalogue/catalogue_report.tsv`.
 
@@ -100,7 +129,7 @@ caller's stop-codon convention is measured against the genome and reported in
 Calls from all callers and libraries are merged into one cohort catalogue.
 
 - `catalogue_merge: exact` (template default) keeps every distinct ORF structure as its own
-  row, retaining all isoforms as in Chothani et al. Calls of the same structure from both
+  row, retaining all isoforms as in Chothani et al. Calls of the same structure from several
   callers, or from several transcripts, become one row credited to each caller.
 - `catalogue_merge: overlap` folds ORFs with at least 80% reciprocal overlap and identical
   splice junctions where they overlap into one representative, chosen by class and then length.
@@ -242,8 +271,15 @@ blastoff can also be run on its own: `workflow/scripts/blastoff/blastoff.py quer
 secreted (`sam_secreted`), intracellular (`sam_intracellular`) or `prisms`, with a probability.
 ORFs it cannot score are labelled `not_scored_non_AUG`, `not_scored_length` or
 `not_scored_sequence`. Every submitted ORF must come back with the expected protein
-(`protein_check.tsv`), or the step fails. ShortStop is installed at a pinned commit, and its
-bundled model is trained on human data.
+(`protein_check.tsv`), or the step fails. ShortStop is installed at a pinned commit (release
+v1.1.0), and its bundled model is trained on human data.
+
+ShortStop v1.1 also scores each ORF with 100 consensus models, each voting SAM when
+P(intracellular) + P(secreted) > 0.5. `shortstop_sam_consensus_percentage` is the share voting
+SAM, and `shortstop_sam_consensus` the highest level reached: `SAM-Consensus-100` (all models),
+`-90` (>= 90%), `-50` (> 50%) or `none`. The levels are nested; `-90` or `-100` is the most
+robust set. `shortstop_class` stays the standard model's call. The model bundle is downloaded
+and checksummed when the ShortStop env is built.
 
 ### featureCounts
 

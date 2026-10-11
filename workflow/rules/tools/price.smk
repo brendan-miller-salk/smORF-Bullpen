@@ -40,6 +40,7 @@ rule price:
         bais=expand(f"{OUT}/align/{{sample}}.genome.sorted.bam.bai", sample=SAMPLES),
         oml=f"{IDX}/gedi/full_hybrid_reference.oml",
         strand=f"{OUT}/qc/strand_report.tsv",   # gate: every library is sense-stranded
+        psite=f"{OUT}/psites/psite_report.tsv",  # gate: no TIS library labelled elongation
     output:
         tsv=f"{OUT}/callers/price/allsamples.orfs.tsv",
     params:

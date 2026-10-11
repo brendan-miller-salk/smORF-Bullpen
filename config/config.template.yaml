@@ -5,7 +5,13 @@
 #   snakemake -s <repo>/workflow/Snakefile --configfile config/bullpen.yaml \
 #             --profile <repo>/profiles/<slurm|local|site>
 
-# Two columns, tab-separated: sample, fastq (single-end, gzipped).
+# Tab-separated: sample, fastq (single-end, gzipped), and optionally
+#   type       elongation (default) | tis_harr | tis_ltm. TIS libraries (harringtonine /
+#              lactimidomycin) are trimmed, aligned and strand-checked, then used only
+#              by Ribo-TISH (tools.callers: ribotish), never by PRICE, RiboCode,
+#              P-site scoring, counting or tracks.
+#   condition  pairs each TIS library with the elongation libraries of its condition
+#              in Ribo-TISH (default: all one condition).
 samplesheet: config/samples.tsv
 
 # Provided mode: annotate a GTF's ORFs instead of calling them from Ribo-seq.
@@ -122,6 +128,11 @@ psite_min_frame0: 0.45
 psite_offset_range: [10, 16]
 psite_min_start_reads: 20000
 psite_min_kept_share: 0.5
+# A TIS library (harringtonine / lactimidomycin) left as elongation stops the run when its
+# start-codon P-site peak is >= tis_peak_max x the early CDS body (start_peak_ratio in
+# psites/psite_report.tsv; HMC3: elongation 5.9-7.4, TIS 17.4-25.8). Stops even with
+# psite_check: warn. Raise it only for a genuine elongation library with a strong peak.
+tis_peak_max: 12
 
 # --- Strandedness ------------------------------------------------------------
 # Bullpen assumes sense reads throughout (P-site tracks, PRICE, RiboCode). Before
@@ -151,7 +162,7 @@ counting_flank_baseline: [40, 100]   # the UTR just past a CDS footprint's reach
 # Available tools are listed in rules/common.smk.
 tools:
   assembly:     []                                # [stringtie] = build novel_gtf from RNA-seq (see Assembly)
-  callers:      [price, ribocode]
+  callers:      [price, ribocode]                 # + ribotish with TIS libraries in the samplesheet
   annotators:   [annotator, shortstop, blastoff]
   conservation: [diamond]                         # [] or absent = no diamond_* columns
   counters:     [featurecounts]                   # [] = no counts.tsv; needs blastoff
@@ -214,6 +225,15 @@ orf_min_samples: 1
 price_max_fdr: 0.1
 price_max_p: null
 ribocode_max_p: null
+# Ribo-TISH (tools.callers: ribotish): one run per TIS library with its condition's
+# elongation libraries. Calls are those at Fisher q (TIS + frame tests) <= this (its
+# --fsqth). ribotish_alt: AUG plus near-cognate starts (--alt); false = AUG only.
+ribotish_max_q: 0.05
+ribotish_alt: true
+# The Fisher q passes any in-frame start inside a translated CDS on frame evidence alone;
+# the catalogue keeps a Ribo-TISH call only if its start codon has an initiation peak,
+# TISQvalue <= this (1 = no filter). Calls with no stop codon are always dropped.
+ribotish_max_tis_q: 0.05
 
 # --- Scoring (Chothani translation signatures) -------------------------------
 # Thresholds are fitted per run from annotated CDS, never hardcoded.
@@ -320,4 +340,5 @@ containers:
   diamond:    docker://quay.io/biocontainers/diamond:2.2.8--he361c42_0
   bedgraphtobigwig: docker://quay.io/biocontainers/ucsc-bedgraphtobigwig:482--hdc0a859_0
   stringtie:  docker://quay.io/biocontainers/stringtie:3.0.3--h29c0135_0
+  ribotish:   docker://quay.io/biocontainers/ribotish:0.2.8--pyhdfd78af_0
   fastp:      docker://quay.io/biocontainers/fastp:1.0.1--heae3180_0

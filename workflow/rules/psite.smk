@@ -69,6 +69,7 @@ rule psite_check:
         offset_range=" ".join(str(x) for x in config.get("psite_offset_range", [10, 16])),
         min_reads=config.get("psite_min_start_reads", 20000),
         min_kept=config.get("psite_min_kept_share", 0.5),
+        tis_peak_max=config.get("tis_peak_max", 12),
     conda:
         "../envs/score.yaml"
     log:
@@ -79,7 +80,8 @@ rule psite_check:
             --offsets {input.offsets} --profiles {input.profiles} \
             --min-share {params.min_share} --min-frame0 {params.min_frame0} \
             --offset-range {params.offset_range} --min-start-reads {params.min_reads} \
-            --min-kept-share {params.min_kept} --out-offsets {output.offsets} \
+            --min-kept-share {params.min_kept} --tis-peak-max {params.tis_peak_max} \
+            --out-offsets {output.offsets} \
             --out-lengths {output.lengths} --out {output.summary} 2> {log}
         cat {log} >&2
         """
@@ -87,19 +89,26 @@ rule psite_check:
 
 rule psite_report:
     """One table for the cohort. Fails on any FAIL sample (psite_check: warn only
-    reports them), and always on a sample with no usable read length."""
+    reports them), and always on a sample with no usable read length or a TIS-like
+    start-codon peak. PRICE and RiboCode wait for it."""
     input:
         expand(f"{OUT}/psites/check/{{sample}}.tsv", sample=SAMPLES),
     output:
         f"{OUT}/psites/psite_report.tsv",
     params:
         mode=config.get("psite_check", "fail"),
+        tis_peak_max=config.get("tis_peak_max", 12),
     shell:
         r"""
         awk 'FNR==1 && NR!=1 {{ next }} {{ print }}' {input} > {output}
         column -t -s $'\t' {output} >&2
         bad=$(awk -F'\t' 'NR>1 && $2=="FAIL" {{ print $1 }}' {output} | paste -sd' ')
         empty=$(awk -F'\t' 'NR>1 && $5=="" {{ print $1 }}' {output} | paste -sd' ')
+        tis=$(awk -F'\t' 'NR==1 {{ for (i=1; i<=NF; i++) if ($i=="tis_like") c=i; next }} $c=="True" {{ print $1 }}' {output} | paste -sd' ')
+        if [ -n "$tis" ]; then
+            echo "ERROR: $tis look like TIS (harringtonine / lactimidomycin) libraries: start-codon peak >= {params.tis_peak_max}x the CDS body (start_peak_ratio in {output}). Set their type to tis_harr or tis_ltm in samples.tsv. If they really are elongation libraries, raise tis_peak_max in the config." >&2
+            exit 1
+        fi
         if [ -n "$empty" ]; then
             echo "ERROR: no read length has a usable P-site offset in: $empty. Drop these libraries from samples.tsv." >&2
             exit 1

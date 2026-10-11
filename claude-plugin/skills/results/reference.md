@@ -20,12 +20,14 @@ and <https://github.com/brendan-miller-salk/smORF-Bullpen/blob/main/docs/methods
 | `qc/strand_report.tsv`, `psites/psite_report.tsv`, `preprocess/adapter_report.tsv` | Per-library QC gates |
 | `counting/flank_fit.tsv`, `counting/flank_metagene.png` | Fitted CDS flanks used for counting |
 | `tracks/<ucsc_genome>/*.bw`, `tracks/frame_summary.tsv` | Frame-resolved P-site bigWigs |
+| `catalogue/cohort.catalogue.tsv` | Per-caller `called_by_<caller>` and `pval_<caller>` (`_ribotish` columns only when it ran; Fisher p), `n_samples` |
+| `callers/ribotish/<tis_sample>.txt`, `callers/ribotish/quality/<sample>_qual.pdf` | Raw Ribo-TISH calls per TIS library; P-site offset quality per library |
 
 ## orf_set (Ribo-seq mode)
 
 | Value | Meaning |
 |---|---|
-| `primary` | Called by PRICE or RiboCode, passes PIF, uniformity and drop-off thresholds |
+| `primary` | Called by any caller, passes PIF, uniformity and drop-off thresholds |
 | `comprehensive` | Called, not excluded, fails at least one score |
 | `excluded` | Removed by a filter; reason after `excluded:` in `failed` |
 
@@ -39,7 +41,7 @@ and <https://github.com/brendan-miller-salk/smORF-Bullpen/blob/main/docs/methods
 | `orf_id`, `chrom`, `start`, `end`, `strand` | BED coordinates, 0-based half-open |
 | `isoform_group` | Stop-codon position; start/splice variants of one ORF share it |
 | `is_smorf` | At most `smorf_max_aa` (default 150) amino acids |
-| `callers` | `PRICE`, `RiboCode` or `PRICE+RiboCode` |
+| `callers` | Callers that found the ORF, joined with `+`, in the order `PRICE`, `RiboCode`, `Ribo-TISH` (e.g. `PRICE+Ribo-TISH`); Ribo-TISH only when TIS libraries were run |
 | `ppm` | P-sites per million (column sums to 1e6) |
 | `pif`, `uniformity`, `dropoff` | Translation signature scores; thresholds in `summary.csv` |
 | `unshared_nt`, `unshared_inframe_psites` | ORF sequence not read in frame by any annotated CDS, and in-frame P-sites there |
@@ -50,6 +52,7 @@ and <https://github.com/brendan-miller-salk/smORF-Bullpen/blob/main/docs/methods
 | `smorf_type`, `general_smorf_type` | Annotator type, refined by UniProt match; architecture group |
 | `blastoff_class`, `blastoff_acc`, `blastoff_gene` | UniProt match |
 | `shortstop_class`, `shortstop_probability` | `sam_secreted`, `sam_intracellular`, `prisms`, or `not_scored_*` |
+| `shortstop_sam_consensus`, `shortstop_sam_consensus_percentage` | `SAM-Consensus-100` / `-90` / `-50` (nested) or `none`; % of 100 models voting SAM. Prefer -90/-100 for candidate lists |
 | `diamond_n_species`, `diamond_species`, `diamond_n_untestable` | Conservation summary |
 | `ucsc` | Genome browser link |
 

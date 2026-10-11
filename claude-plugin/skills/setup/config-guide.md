@@ -43,6 +43,7 @@ Ask these questions, then set `tools:`:
 | Do you have bulk RNA-seq of the same cells and want ORFs on unannotated transcripts? | `assembly: [stringtie]`, `novel_gtf: null`, and an RNA-seq samplesheet (`sample`, `fastq_1`, `fastq_2`; one row per lane; `fastq_2` empty for single-end) at `rnaseq_samplesheet` |
 | Already have a StringTie/gffcompare assembly? | `novel_gtf: <path>` (and `novel_gtf_stranded: true` if stranded) instead of assembly |
 | Want both ORF callers? (recommended) | `callers: [price, ribocode]` |
+| Any TIS (harringtonine / lactimidomycin) libraries in the samplesheet? | Add `ribotish` to `callers`; see [TIS libraries](#tis-libraries-and-ribo-tish) |
 | Need smORF types (uORF, iORF, ...)? | `annotator` |
 | Need to know which ORFs are known proteins, isoforms or novel? | `blastoff` |
 | Interested in secreted vs intracellular microproteins? | `shortstop` |
@@ -52,7 +53,27 @@ Ask these questions, then set `tools:`:
 
 Dependencies: `featurecounts` needs `blastoff`; provided mode allows only `annotators` and
 `conservation` (`callers`, `counters`, `visualizers`, `assembly` must be `[]` or absent);
-`novel_gtf` and `assembly` are mutually exclusive.
+`novel_gtf` and `assembly` are mutually exclusive; `ribotish` and TIS libraries need each other.
+
+## TIS libraries and Ribo-TISH
+
+Optional samplesheet columns: `type` (`elongation` default, `tis_harr`, `tis_ltm`) and
+`condition` (free text, default `all`). TIS libraries are preprocessed, aligned and
+strand-checked, then used only by Ribo-TISH: never by PRICE, RiboCode, P-site checks, scoring,
+counting or tracks. Ribo-TISH runs once per TIS library with the elongation libraries of the
+same `condition`.
+
+- Enable `ribotish` only when the samplesheet has TIS libraries; TIS libraries without it, or
+  it without TIS libraries, is an error. It is never on by default.
+- Every TIS library needs an elongation library with the same `condition`, and the samplesheet
+  needs at least one elongation library.
+- An unlabelled TIS library is caught twice: a name with `harr` / `ltm` / `lact` / `tis` and no
+  `type` stops the run at startup, and an elongation library whose start-codon peak is
+  >= `tis_peak_max` (12) x its CDS body stops it before PRICE and RiboCode. Ask the user about
+  any library whose name or description suggests harringtonine or lactimidomycin.
+- Options: `ribotish_max_q` (0.05, Fisher q cut-off) and `ribotish_alt` (`true`: AUG plus
+  near-cognate starts; `false`: AUG only). `containers:` needs the `ribotish` entry from the
+  template.
 
 ## Options users commonly change
 
