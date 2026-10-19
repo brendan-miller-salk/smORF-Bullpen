@@ -24,13 +24,25 @@
 # optional novel GTF (your `novel_gtf`) to check its seqnames match the genome.
 set -euo pipefail
 
+EnsemblVersion=116
+Org_Name='Mus_musculus'
+Org_Name_common='mouse'
+Org_TaxID=10090
+GenomeAssembly='GRCm39'
+UniProt_proteomeAcc='UP000000589'
+# Org_Name='Homo_sapiens'
+# Org_Name_common='human'
+# Org_TaxID=9606
+# GenomeAssembly='GRCh38'
+# UniProt_proteomeAcc='UP000005640'
+
 REF_DIR=${1:?usage: fetch_references.sh <out_dir> [novel.gtf]}
 STRINGTIE_GTF=${2:-}
 [[ -z "$STRINGTIE_GTF" || -f "$STRINGTIE_GTF" ]] || { echo "not found: $STRINGTIE_GTF" >&2; exit 1; }
 [[ -z "$STRINGTIE_GTF" ]] || STRINGTIE_GTF=$(cd "$(dirname "$STRINGTIE_GTF")" && pwd)/$(basename "$STRINGTIE_GTF")
 mkdir -p "$REF_DIR"
 REF_DIR=$(cd "$REF_DIR" && pwd)
-ENSEMBL="https://ftp.ensembl.org/pub/release-110"
+ENSEMBL="https://ftp.ensembl.org/pub/release-${EnsemblVersion}"
 
 cd "$REF_DIR"
 
@@ -49,29 +61,29 @@ rename_fasta() {
 }
 
 # --- Genome ------------------------------------------------------------------
-if [[ ! -f GRCm39.primary_assembly.genome.fa ]]; then
+if [[ ! -f "${GenomeAssembly}.primary_assembly.genome.fa" ]]; then
   echo "Downloading genome ..."
   curl -fL --retry 3 -o ens_genome.fa.gz \
-    "$ENSEMBL/fasta/mus_musculus/dna/Mus_musculus.GRCm39.dna.primary_assembly.fa.gz"
+    "$ENSEMBL/fasta/${Org_Name,,}/dna/${Org_Name}.${GenomeAssembly}.dna.primary_assembly.fa.gz"
   echo "Renaming seqnames to chr-convention ..."
-  gunzip -c ens_genome.fa.gz | rename_fasta > GRCm39.primary_assembly.genome.fa
+  gunzip -c ens_genome.fa.gz | rename_fasta > ${GenomeAssembly}.primary_assembly.genome.fa
   rm -f ens_genome.fa.gz
 fi
 
 # --- Annotation --------------------------------------------------------------
-if [[ ! -f ensembl110.GRCm39.chr.gtf ]]; then
+if [[ ! -f "ensembl${EnsemblVersion}.${GenomeAssembly}.chr.gtf" ]]; then
   echo "Downloading annotation ..."
   curl -fL --retry 3 -o ens.gtf.gz \
-    "$ENSEMBL/gtf/mus_musculus/Mus_musculus.GRCm39.110.gtf.gz"
-  gunzip -c ens.gtf.gz | rename_gtf > ensembl110.GRCm39.chr.gtf
+    "$ENSEMBL/gtf/${Org_Name,,}/${Org_Name}.${GenomeAssembly}.${EnsemblVersion}.gtf.gz"
+  gunzip -c ens.gtf.gz | rename_gtf > ensembl${EnsemblVersion}.${GenomeAssembly}.chr.gtf
   rm -f ens.gtf.gz
 fi
 
 # --- Transcript FASTA (only needed if you add matched RNA-seq) ---------------
-if [[ ! -f ensembl110.GRCm39.cdna.fa ]]; then
+if [[ ! -f ensembl${EnsemblVersion}.${GenomeAssembly}.cdna.fa ]]; then
   curl -fL --retry 3 -o ens_cdna.fa.gz \
-    "$ENSEMBL/fasta/mus_musculus/cdna/Mus_musculus.GRCm39.cdna.all.fa.gz"
-  gunzip -c ens_cdna.fa.gz > ensembl110.GRCm39.cdna.fa
+    "$ENSEMBL/fasta/${Org_Name,,}/cdna/${Org_Name}.${GenomeAssembly}.cdna.all.fa.gz"
+  gunzip -c ens_cdna.fa.gz > ensembl${EnsemblVersion}.${GenomeAssembly}.cdna.fa
   rm -f ens_cdna.fa.gz
 fi
 
@@ -81,51 +93,51 @@ fi
 # Pinned: UniProt only serves the current release here, so a different release
 # aborts rather than silently changing the database under an existing run.
 UNIPROT_RELEASE="${UNIPROT_RELEASE:-2026_03}"
-UNIPROT_DIR="uniprot_UP000000589_${UNIPROT_RELEASE}"
-if [[ "${FETCH_UNIPROT:-1}" == 1 && ! -f "$UNIPROT_DIR/uniprot_mouse.fasta" ]]; then
-  UP="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/UP000000589"
+UNIPROT_DIR="uniprot_${UniProt_proteomeAcc}_${UNIPROT_RELEASE}"
+if [[ "${FETCH_UNIPROT:-1}" == 1 && ! -f "$UNIPROT_DIR/uniprot_${Org_Name_common}.fasta" ]]; then
+  UP="https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/reference_proteomes/Eukaryota/${UniProt_proteomeAcc}"
   mkdir -p "$UNIPROT_DIR"
   curl -fsL --retry 3 -o "$UNIPROT_DIR/RELEASE.metalink" "$UP/RELEASE.metalink"
   served=$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' "$UNIPROT_DIR/RELEASE.metalink")
   [[ "$served" == "$UNIPROT_RELEASE" ]] || {
     echo "FAIL: UniProt now serves $served, pinned $UNIPROT_RELEASE. Set UNIPROT_RELEASE=$served to move."; exit 1; }
-  for f in UP000000589_10090.fasta.gz UP000000589_10090_additional.fasta.gz; do
+  for f in ${UniProt_proteomeAcc}_${Org_TaxID}.fasta.gz ${UniProt_proteomeAcc}_${Org_TaxID}_additional.fasta.gz; do
     echo "Downloading UniProt $f ($UNIPROT_RELEASE) ..."
     curl -fL --retry 3 -o "$UNIPROT_DIR/$f" "$UP/$f"
     want=$(awk -v f="$f" '$0 ~ "name=\""f"\"" {g=1} g && /hash type="md5"/ {gsub(/.*">|<.*/,""); print; exit}' "$UNIPROT_DIR/RELEASE.metalink")
     got=$(md5sum "$UNIPROT_DIR/$f" | cut -d' ' -f1)
     [[ -n "$want" && "$want" == "$got" ]] || { echo "FAIL: md5 mismatch for $f ($got vs '$want')"; exit 1; }
   done
-  gunzip -c "$UNIPROT_DIR"/UP000000589_10090.fasta.gz "$UNIPROT_DIR"/UP000000589_10090_additional.fasta.gz \
-    > "$UNIPROT_DIR/uniprot_mouse.fasta"
+  gunzip -c "$UNIPROT_DIR"/${UniProt_proteomeAcc}_${Org_TaxID}.fasta.gz "$UNIPROT_DIR"/${UniProt_proteomeAcc}_${Org_TaxID}_additional.fasta.gz \
+    > "$UNIPROT_DIR/uniprot_${Org_Name_common}.fasta"
   # The workflow builds its own BLAST db from the FASTA; this one is for standalone use.
   if command -v makeblastdb >/dev/null; then
-    makeblastdb -in "$UNIPROT_DIR/uniprot_mouse.fasta" -dbtype prot -parse_seqids \
-      -out "$UNIPROT_DIR/uniprot_mouse" -title "UniProt UP000000589 $UNIPROT_RELEASE canonical+additional"
+    makeblastdb -in "$UNIPROT_DIR/uniprot_${Org_Name_common}.fasta" -dbtype prot -parse_seqids \
+      -out "$UNIPROT_DIR/uniprot_${Org_Name_common}" -title "UniProt ${UniProt_proteomeAcc} $UNIPROT_RELEASE canonical+additional"
   else
     echo "  makeblastdb not on PATH: skipped the standalone BLAST db (the workflow builds its own)"
   fi
-  echo "  UniProt entries: $(grep -c '^>' "$UNIPROT_DIR/uniprot_mouse.fasta")"
+  echo "  UniProt entries: $(grep -c '^>' "$UNIPROT_DIR/uniprot_${Org_Name_common}.fasta")"
 fi
 
 # --- Verification ------------------------------------------------------------
 echo
 echo "=== Annotator requirements ==="
 for feat in five_prime_utr three_prime_utr; do
-  n=$(awk -F'\t' -v f="$feat" '$3==f' ensembl110.GRCm39.chr.gtf | wc -l | tr -d ' ')
+  n=$(awk -F'\t' -v f="$feat" '$3==f' ensembl${EnsemblVersion}.${GenomeAssembly}.chr.gtf | wc -l | tr -d ' ')
   printf "  %-20s %s\n" "$feat" "$n"
   [[ "$n" -gt 0 ]] || { echo "  FAIL: $feat missing - the Annotator cannot classify uORFs/dORFs"; exit 1; }
 done
 for attr in gene_biotype transcript_biotype; do
-  grep -q "$attr \"" ensembl110.GRCm39.chr.gtf \
+  grep -q "$attr \"" ensembl${EnsemblVersion}.${GenomeAssembly}.chr.gtf \
     && printf "  %-20s present\n" "$attr" \
     || { echo "  FAIL: $attr missing"; exit 1; }
 done
 
 echo
 echo "=== Seqname agreement with the genome ==="
-awk '/^>/{print substr($1,2)}' GRCm39.primary_assembly.genome.fa | sort -u > .fa_names
-cut -f1 ensembl110.GRCm39.chr.gtf | grep -v '^#' | sort -u > .gtf_names
+awk '/^>/{print substr($1,2)}' ${GenomeAssembly}.primary_assembly.genome.fa | sort -u > .fa_names
+cut -f1 ensembl${EnsemblVersion}.${GenomeAssembly}.chr.gtf | grep -v '^#' | sort -u > .gtf_names
 missing=$(comm -13 .fa_names .gtf_names | wc -l | tr -d ' ')
 echo "  GTF seqnames absent from genome FASTA: $missing"
 [[ "$missing" -eq 0 ]] || { echo "  FAIL:"; comm -13 .fa_names .gtf_names | head; exit 1; }
