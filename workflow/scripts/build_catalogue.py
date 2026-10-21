@@ -290,15 +290,20 @@ def read_ribotish(path, sample, seqmap, max_tis_q, stats):
 # --------------------------------------------------------------------------- genome checks
 
 def last_codon(genome, chrom, strand, blocks):
-    if strand == "+":
-        s, e = blocks[-1][1] - 3, blocks[-1][1]
-        if s < blocks[-1][0]:
-            return None
-        return str(genome[chrom][s:e]).upper()
-    s, e = blocks[0][0], blocks[0][0] + 3
-    if e > blocks[0][1]:
+    """The ORF's last 3 nt in transcript order, read across exon junctions (a stop
+    codon split by an intron); None if the blocks hold fewer than 3 nt."""
+    if sum(e - s for s, e in blocks) < 3:
         return None
-    return str(genome[chrom][s:e]).upper().translate(COMP)[::-1]
+    parts, need = [], 3
+    for s, e in (reversed(blocks) if strand == "+" else blocks):
+        n = min(need, e - s)
+        parts.append(str(genome[chrom][e - n:e] if strand == "+" else genome[chrom][s:s + n]))
+        need -= n
+        if not need:
+            break
+    if strand == "+":
+        return "".join(reversed(parts)).upper()
+    return "".join(parts).upper().translate(COMP)[::-1]
 
 
 def stop_position(strand, blocks):

@@ -29,7 +29,8 @@ thresholds fitted to each dataset's own coding sequences, and every reported ORF
 translation evidence of its own rather than borrowing reads from a known gene.
 
 Already have a set of ORFs? **Provided mode** skips the Ribo-seq steps and runs the annotation
-modules on any ORF GTF.
+modules on any ORF GTF. [demo/provided_mode/](demo/provided_mode/) runs it on the GENCODE
+Ribo-seq ORFs.
 
 ![smORF-Bullpen pipeline](docs/images/smorf-bullpen-pipeline-dark.svg)
 

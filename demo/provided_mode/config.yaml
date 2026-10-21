@@ -1,0 +1,59 @@
+# Provided-mode demo: the GENCODE Ribo-seq ORF set (7,264 ORFs, GRCh38) through the
+# annotation modules. See README.md in this directory. Replace /path/to/refs with your
+# human references (Ensembl 116 = GENCODE v50).
+
+orf_gtf: smORFsGencode.hg38.gtf          # gunzip -k of the copy in this directory
+orf_gtf_drop_invalid: false              # every ORF passes; true would list failures in catalogue/catalogue_rejects.tsv
+outdir: results_demo
+index_dir: results_demo/index
+
+genome: /path/to/refs/GRCh38.primary_assembly.genome.fa
+gtf: /path/to/refs/ensembl116.GRCh38.chr.gtf        # Ensembl, chr-renamed (refs/fetch_references.sh rename_gtf)
+ucsc_genome: hg38
+smorf_max_aa: 150
+
+tools:
+  callers: []
+  counters: []
+  visualizers: []
+  annotators: [annotator, shortstop, blastoff]
+  conservation: [diamond]
+
+blastoff_fasta: /path/to/refs/uniprot_human.fasta   # UniProt UP000005640, canonical + isoforms
+
+# Human-sourced panel: SOURCE=human:hsapiens RELEASE=116 bash refs/fetch_conservation.sh /path/to/refs
+diamond_species:
+  mouse:     /path/to/refs/ensembl116_conservation/mouse.cdna_ncrna.fa.gz
+  rat:       /path/to/refs/ensembl116_conservation/rat.cdna_ncrna.fa.gz
+  cow:       /path/to/refs/ensembl116_conservation/cow.cdna_ncrna.fa.gz
+  chicken:   /path/to/refs/ensembl116_conservation/chicken.cdna_ncrna.fa.gz
+  zebrafish: /path/to/refs/ensembl116_conservation/zebrafish.cdna_ncrna.fa.gz
+diamond_orthologs:
+  mouse:     /path/to/refs/ensembl116_conservation/mouse.orthologs.tsv
+  rat:       /path/to/refs/ensembl116_conservation/rat.orthologs.tsv
+  cow:       /path/to/refs/ensembl116_conservation/cow.orthologs.tsv
+  chicken:   /path/to/refs/ensembl116_conservation/chicken.orthologs.tsv
+  zebrafish: /path/to/refs/ensembl116_conservation/zebrafish.orthologs.tsv
+
+# The rule files look every key up when parsed; only the images of jobs that run are pulled.
+containers:
+  trimgalore: docker://community.wave.seqera.io/library/trim-galore:2.3.0--6a38a479b4972363
+  sortmerna:  docker://community.wave.seqera.io/library/sortmerna:4.3.7--b730cad73fc42b8e
+  star:       docker://community.wave.seqera.io/library/htslib_samtools_star_gawk:ae438e9a604351a4
+  gedi_index: docker://community.wave.seqera.io/library/gedi_indexgenome:cfca16738f306c86
+  gedi_price: docker://community.wave.seqera.io/library/gedi_price:2392624d5f803049
+  ribocode:   docker://community.wave.seqera.io/library/ribocode:1.2.15--5530b252f5433a62
+  plastid:    docker://quay.io/biocontainers/plastid:0.6.1--py39had3e4b6_2
+  gffcompare: docker://quay.io/biocontainers/gffcompare:0.12.6--h9f5acd7_0
+  agat:       docker://quay.io/biocontainers/agat:1.6.1--pl5321hdfd78af_1
+  gffread:    docker://quay.io/biocontainers/gffread:0.12.7--hdcf5f25_4
+  subread:    docker://quay.io/biocontainers/subread:2.0.8--h577a1d6_0
+  bedtools:   docker://quay.io/biocontainers/bedtools:2.31.1--hf5e1c6e_0
+  seqkit:     docker://community.wave.seqera.io/library/seqkit:2.13.0--05c0a96bf9fb2751
+  mmseqs2:    docker://community.wave.seqera.io/library/mmseqs2:18.8cc5c--af05c9a98d9f6139
+  blast:      docker://quay.io/biocontainers/blast:2.14.1--pl5321h6f7f691_0
+  diamond:    docker://quay.io/biocontainers/diamond:2.2.8--he361c42_0
+  bedgraphtobigwig: docker://quay.io/biocontainers/ucsc-bedgraphtobigwig:482--hdc0a859_0
+  stringtie:  docker://quay.io/biocontainers/stringtie:3.0.3--h29c0135_0
+  ribotish:   docker://quay.io/biocontainers/ribotish:0.2.8--pyhdfd78af_0
+  fastp:      docker://quay.io/biocontainers/fastp:1.0.1--heae3180_0

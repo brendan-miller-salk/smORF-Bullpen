@@ -42,8 +42,10 @@ if PROVIDED:
             tsv=f"{MERGED}.tsv",
             consensus=f"{MERGED}.consensus.bed12",
             report=f"{OUT}/catalogue/catalogue_report.tsv",
+            rejects=f"{OUT}/catalogue/catalogue_rejects.tsv",
         params:
             max_aa=config.get("smorf_max_aa", 150),
+            drop="--drop-invalid" if config.get("orf_gtf_drop_invalid") else "",
         conda:
             "../envs/score.yaml"
         log:
@@ -51,7 +53,8 @@ if PROVIDED:
         shell:
             r"""
             python {SCRIPTS}/provided_catalogue.py --gtf {input.gtf} --genome {input.genome} \
-                --smorf-max-aa {params.max_aa} --out-prefix {MERGED} --report {output.report} 2> {log}
+                --smorf-max-aa {params.max_aa} --out-prefix {MERGED} --report {output.report} \
+                --rejects {output.rejects} {params.drop} 2> {log}
             cat {log} >&2
             """
 

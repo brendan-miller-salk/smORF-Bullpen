@@ -48,14 +48,15 @@ BASE = [
 ]
 
 
-def run(d, rows):
-    open(os.path.join(d, "g.fa"), "w").write(GENOME)
+def run(d, rows, *extra, genome=GENOME):
+    open(os.path.join(d, "g.fa"), "w").write(genome)
     open(os.path.join(d, "o.gtf"), "w").writelines(rows)
     err = io.StringIO()
     try:
         with contextlib.redirect_stderr(err):
             code = main(["--gtf", os.path.join(d, "o.gtf"), "--genome", os.path.join(d, "g.fa"),
-                         "--out-prefix", os.path.join(d, "cat"), "--report", os.path.join(d, "rep.tsv")])
+                         "--out-prefix", os.path.join(d, "cat"), "--report", os.path.join(d, "rep.tsv"),
+                         "--rejects", os.path.join(d, "rej.tsv"), *extra])
     except SystemExit as e:
         return str(e.code)
     return code
@@ -82,6 +83,8 @@ with tempfile.TemporaryDirectory() as d:
     check("orf_class", {r["orf_class"] for r in row}, {"provided"})
     check("report", (rep["orfs"], rep["duplicate_structures_folded"], rep["extended_3nt_to_stop"]),
           ("2", "1", "1"))
+    check("rejects: header only", open(os.path.join(d, "rej.tsv")).read(),
+          "transcript_id\tsource_id\treason\n")
 
 with tempfile.TemporaryDirectory() as d:
     rows = BASE[:4] + [gtf_row("1", "CDS", 60, 61, "+", 'gene_id "gX"; transcript_id "tX";')]
@@ -96,6 +99,59 @@ with tempfile.TemporaryDirectory() as d:
 with tempfile.TemporaryDirectory() as d:
     rows = [r.replace("1\tt", "9\tt", 1) for r in BASE[:4]]
     check("unknown seqname aborts", "not in the genome" in str(run(d, rows)), True)
+
+# Stop codon split by an intron (GENCODE writes two stop_codon rows). + : ATGAAA TA | A at
+# [120,128) + [140,141); - : sense ATGAAA TA | G, genome [190,198) = TATTTCAT, [180,181) = C.
+# The 3 nt after each last block are filler C, so a block-local check would call them no_stop.
+gs = list(GENOME.split("\n")[1])
+gs[120:128] = "ATGAAATA"
+gs[140] = "A"
+gs[190:198] = "TATTTCAT"
+SPLIT = [
+    gtf_row("1", "transcript", 121, 141, "+", 'gene_id "gS"; transcript_id "tS";'),
+    gtf_row("1", "CDS", 121, 126, "+", 'gene_id "gS"; transcript_id "tS";'),
+    gtf_row("1", "stop_codon", 127, 128, "+", 'gene_id "gS"; transcript_id "tS";'),
+    gtf_row("1", "stop_codon", 141, 141, "+", 'gene_id "gS"; transcript_id "tS";'),
+    gtf_row("1", "transcript", 181, 198, "-", 'gene_id "gM"; transcript_id "tM";'),
+    gtf_row("1", "CDS", 193, 198, "-", 'gene_id "gM"; transcript_id "tM";'),
+    gtf_row("1", "stop_codon", 191, 192, "-", 'gene_id "gM"; transcript_id "tM";'),
+    gtf_row("1", "stop_codon", 181, 181, "-", 'gene_id "gM"; transcript_id "tM";'),
+]
+with tempfile.TemporaryDirectory() as d:
+    check("split stop: runs", run(d, SPLIT, genome=">chr1\n" + "".join(gs) + "\n"), 0)
+    bed = [l.split("\t") for l in open(os.path.join(d, "cat.bed12")).read().splitlines()]
+    rep = dict(l.split("\t") for l in open(os.path.join(d, "rep.tsv")).read().splitlines()[1:])
+    check("split stop: both end in a stop, not extended",
+          (rep["ends_in_stop"], "extended_3nt_to_stop" in rep), ("2", False))
+    check("split stop: blocks unchanged", [b[1:3] + b[10:12] for b in bed],
+          [["120", "141", "8,1,", "0,20,"], ["180", "198", "1,8,", "0,10,"]])
+
+# --drop-invalid: no-stop tC (orf_id attribute), not-a-multiple-of-3 tL, orphan tX dropped and listed
+NO_STOP = [gtf_row("1", "transcript", 151, 159, "+", 'gene_id "gC"; transcript_id "tC"; orf_id "c1";'),
+           gtf_row("1", "CDS", 151, 159, "+", 'gene_id "gC"; transcript_id "tC";')]
+BAD_LEN = [gtf_row("1", "transcript", 11, 45, "+", 'gene_id "gL"; transcript_id "tL";'),
+           gtf_row("1", "CDS", 11, 17, "+", 'gene_id "gL"; transcript_id "tL";'),
+           gtf_row("1", "CDS", 41, 41, "+", 'gene_id "gL"; transcript_id "tL";'),
+           gtf_row("1", "stop_codon", 43, 45, "+", 'gene_id "gL"; transcript_id "tL";')]
+ORPHAN = [gtf_row("1", "CDS", 60, 61, "+", 'gene_id "gX"; transcript_id "tX";')]
+with tempfile.TemporaryDirectory() as d:
+    check("drop: runs", run(d, BASE + NO_STOP + BAD_LEN + ORPHAN, "--drop-invalid"), 0)
+    check("drop: valid ORFs kept", len(open(os.path.join(d, "cat.bed12")).read().splitlines()), 2)
+    rej = [l.split("\t") for l in open(os.path.join(d, "rej.tsv")).read().splitlines()[1:]]
+    check("drop: rejects listed with source_id and reason", rej,
+          [["tC", "c1", "no_stop"], ["tL", "tL", "not_multiple_of_3"], ["tX", "", "no_transcript_row"]])
+    rep = dict(l.split("\t") for l in open(os.path.join(d, "rep.tsv")).read().splitlines()[1:])
+    check("drop: report counts", (rep["transcripts_with_cds"], rep["dropped:no_stop"],
+                                  rep["dropped:not_multiple_of_3"], rep["dropped:no_transcript_row"]),
+          ("5", "1", "1", "1"))
+with tempfile.TemporaryDirectory() as d:
+    check("drop: no ORF left aborts", "every ORF was dropped" in str(run(d, NO_STOP, "--drop-invalid")), True)
+with tempfile.TemporaryDirectory() as d:
+    check("no stop abort names the flag", "orf_gtf_drop_invalid" in str(run(d, BASE + NO_STOP)), True)
+with tempfile.TemporaryDirectory() as d:
+    rows = [r.replace("1\tt", "9\tt", 1) for r in BASE[:4]]
+    check("drop: unknown seqname still aborts",
+          "not in the genome" in str(run(d, rows, "--drop-invalid")), True)
 
 print(f"\n{'ALL PASS' if not failed else f'{failed} FAILED'}")
 sys.exit(1 if failed else 0)

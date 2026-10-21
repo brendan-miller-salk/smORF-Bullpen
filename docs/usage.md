@@ -133,10 +133,15 @@ No samplesheet is needed. Trimming, alignment, ORF calling, scoring and counting
 
 The GTF needs a `transcript` row and its `CDS` rows for each ORF, one ORF per transcript.
 `stop_codon` rows are folded in if present, and a CDS that ends one codon short of a stop is
-extended to include it. Chromosomes may be bare (`7`) or `chr`-prefixed. ORFs with identical
-structures are merged into one row. The run stops and lists the offending ORFs if any have CDS
-rows without a transcript row, a length that is not a multiple of 3, no stop codon, or a
-chromosome that is not in the genome.
+extended to include it. A stop codon split by an intron (two `stop_codon` rows) is read across
+the junction. Chromosomes may be bare (`7`) or `chr`-prefixed. ORFs with identical structures
+are merged into one row. The run stops and lists the offending ORFs if any have CDS rows
+without a transcript row, a length that is not a multiple of 3, no stop codon, or a chromosome
+that is not in the genome. With `orf_gtf_drop_invalid: true`, all but the chromosome failures
+are dropped instead and listed, with the reason, in `catalogue/catalogue_rejects.tsv`.
+
+[demo/provided_mode/](../demo/provided_mode/) runs the 7,264 GENCODE Ribo-seq ORFs through
+provided mode and lists the expected results.
 
 ## Running the pipeline
 

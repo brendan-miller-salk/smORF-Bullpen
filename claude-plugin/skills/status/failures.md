@@ -47,7 +47,7 @@ Deliberate stops that protect the results from bad input.
 | `shortstop` | `protein check failed for N of M submitted ORFs` | ShortStop returned a different protein than expected. See `annotations/shortstop/protein_check.tsv`. | Report as a bug with that file. |
 | `smorf_sets` | `ORFs not in` / `genome translation disagrees with aa_seq` | Internal consistency check between the table and the genome | Report as a bug with `logs/smorf_sets.log`. |
 | `pass_all_qc` | WARN lines | Results fall outside GENCODE smORFs v2 ranges (`scoring/pass_all_qc.tsv`) | Warns only; stops only with `pass_all_qc: fail`. |
-| `provided_catalogue` | CDS without transcript row, off-chromosome, not a multiple of 3, no stop, seqnames not in genome | Problems in a provided-mode GTF | Fix the GTF; the message lists the ORFs. |
+| `provided_catalogue` | CDS without transcript row, off-chromosome, not a multiple of 3, no stop, seqnames not in genome | Problems in a provided-mode GTF | Fix the GTF; the message lists the ORFs. Or set `orf_gtf_drop_invalid: true` to drop all but the seqname failures and list them in `catalogue/catalogue_rejects.tsv`. |
 | `rnaseq_strand` | `cannot infer one strandedness` | RNA-seq samples disagree on strandedness | Set `rnaseq_strandedness` explicitly, or remove the odd sample. |
 
 ## Resources

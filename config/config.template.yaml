@@ -21,6 +21,11 @@ samplesheet: config/samples.tsv
 # orfs.csv gains source_id (the GTF's orf_id attribute, else transcript_id).
 orf_gtf: null
 
+# Provided mode only. true: ORFs failing a per-ORF check (CDS without transcript row, off their
+# transcript's chromosome/strand, not a multiple of 3, no stop) are dropped and listed in
+# <outdir>/catalogue/catalogue_rejects.tsv instead of stopping the run. Unknown seqnames still stop it.
+orf_gtf_drop_invalid: false
+
 # Every output of the run lands here.
 outdir: results_bullpen
 

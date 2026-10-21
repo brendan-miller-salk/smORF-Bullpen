@@ -10,9 +10,11 @@ source_id is the transcript's `orf_id` attribute, else its transcript_id.
 Identical block structures are written once, their source_ids joined with ','.
 Nothing is merged by overlap or protein similarity: no MMseqs2 collapse.
 
-Aborts, listing offenders, on: CDS rows with no transcript row, a transcript on
-two chromosomes or strands, seqnames not in the genome, a CDS not a multiple of
-3, or an ORF that neither ends in nor is followed by a stop.
+Per-ORF failures: CDS rows with no transcript row, a transcript on two
+chromosomes or strands, a CDS not a multiple of 3, or an ORF that neither ends
+in nor is followed by a stop. These abort, listing offenders, unless
+--drop-invalid: then they are dropped and listed in --rejects (always written,
+header only when nothing is dropped). Seqnames not in the genome always abort.
 """
 from __future__ import annotations
 
@@ -28,9 +30,9 @@ COLS = ["orf_id", "source_id", "chrom", "start", "end", "strand", "gene_id", "tr
         "orf_class", "aa_length", "is_smorf"]
 
 
-def die(what, bad):
+def die(what, bad, hint=""):
     shown = ", ".join(map(str, bad[:10])) + (f" ... (+{len(bad) - 10})" if len(bad) > 10 else "")
-    sys.exit(f"provided_catalogue: {len(bad):,} {what}: {shown}")
+    sys.exit(f"provided_catalogue: {len(bad):,} {what}: {shown}{hint}")
 
 
 def read_gtf(path):
@@ -90,14 +92,28 @@ def main(argv=None):
     ap.add_argument("--smorf-max-aa", type=int, default=150)
     ap.add_argument("--out-prefix", required=True, help="writes <prefix>.bed12/.tsv/.consensus.bed12")
     ap.add_argument("--report", required=True)
+    ap.add_argument("--rejects", required=True, help="TSV of the ORFs --drop-invalid dropped")
+    ap.add_argument("--drop-invalid", action="store_true",
+                    help="drop ORFs failing a per-ORF check instead of aborting")
     a = ap.parse_args(argv)
 
+    stats, rejects = collections.Counter(), {}
+
+    def reject(what, reason, bad):
+        if not a.drop_invalid:
+            die(what, bad, "; set orf_gtf_drop_invalid: true to drop and list them")
+        for tid in bad:
+            rejects[tid] = (tx.pop(tid, {}).get("source_id", ""), reason)
+        stats[f"dropped:{reason}"] += len(bad)
+
     tx, orphans, bad_loc = read_gtf(a.gtf)
+    stats["transcripts_with_cds"] = len(tx)
     if orphans:
-        die("transcript_ids have CDS rows but no transcript row", orphans)
+        reject("transcript_ids have CDS rows but no transcript row", "no_transcript_row", orphans)
     if bad_loc:
-        die("transcripts have CDS rows off their transcript's chromosome or strand", bad_loc)
-    if not tx:
+        reject("transcripts have CDS rows off their transcript's chromosome or strand",
+               "off_chromosome_or_strand", bad_loc)
+    if not tx and not rejects:
         sys.exit(f"provided_catalogue: no transcript with CDS rows in {a.gtf}")
 
     genome = Fasta(a.genome, as_raw=True, sequence_always_upper=True)
@@ -107,7 +123,6 @@ def main(argv=None):
     if seqmap.unknown:
         die("seqnames are not in the genome", sorted(seqmap.unknown))
 
-    stats = collections.Counter(transcripts_with_cds=len(tx))
     stats.update({f"seqname_renamed:{k}": v for k, v in seqmap.renamed.items()})
     no_stop, bad_len = [], []
     for tid, t in tx.items():
@@ -122,10 +137,17 @@ def main(argv=None):
             no_stop.append(tid)
         if sum(e - s for s, e in t["blocks"]) % 3:
             bad_len.append(tid)
+    no_stop = sorted(set(no_stop) - set(bad_len))
     if bad_len:
-        die("ORFs are not a multiple of 3 nt (stop included)", sorted(bad_len))
+        reject("ORFs are not a multiple of 3 nt (stop included)", "not_multiple_of_3", sorted(bad_len))
     if no_stop:
-        die("ORFs neither end in nor are followed by a stop codon", sorted(no_stop))
+        reject("ORFs neither end in nor are followed by a stop codon", "no_stop", no_stop)
+    with open(a.rejects, "w") as fh:
+        fh.write("transcript_id\tsource_id\treason\n")
+        for tid in sorted(rejects):
+            fh.write("\t".join([tid, *rejects[tid]]) + "\n")
+    if not tx:
+        sys.exit(f"provided_catalogue: every ORF was dropped; see {a.rejects}")
 
     by_struct = collections.defaultdict(list)
     for tid, t in tx.items():

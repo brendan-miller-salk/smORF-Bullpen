@@ -161,6 +161,7 @@ and continue.
 | `scoring/pass_all_qc.tsv` | Thresholds, Primary fraction and length and overlap biases compared with Chothani et al. (warns by default) | `pass_all_qc` |
 | `callers/ribotish/quality/<sample>_qual.pdf` | Ribo-TISH found at least one read length with a usable P-site offset (fails otherwise) | `ribotish` |
 | `catalogue/catalogue_report.tsv` | Stop-codon convention of each caller, measured against the genome | |
+| `catalogue/catalogue_rejects.tsv` | Provided mode: ORFs dropped from the GTF and why (empty unless `orf_gtf_drop_invalid`) | `orf_gtf_drop_invalid` |
 | `assembly/strand_report.tsv`, `assembly/adapter_report.tsv`, `assembly/assembly_report.tsv` | RNA-seq strandedness, adapters and per-step transcript counts (`stringtie`) | |
 
 ## Intermediate files
